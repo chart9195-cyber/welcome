@@ -1,19 +1,28 @@
-import sys
 from core.identity.identity_gen import DeviceGenerator
 from core.network.rotator import NetworkManager
+from plugins.recon.scanner import ReconEngine
 
 class UltraCloner:
     def __init__(self):
-        print("🚀 Ultra-Cloner-X Engine Started")
-        self.identity = DeviceGenerator()
-        self.network = NetworkManager()
+        self.id_gen = DeviceGenerator()
+        self.net_man = NetworkManager()
+        self.recon = ReconEngine()
 
-    def start_operation(self, target_app):
-        print(f"[*] Target: {target_app}")
-        profile = self.identity.create_iphone_profile()
-        self.network.init_proxy_session()
-        print(f"[+] Clone Created with ID: {profile['device_id']}")
+    def run_operation(self, apk_name):
+        print("--- OPERATION START ---")
+        
+        # 1. Recon
+        self.recon.scan_apk(apk_name)
+        
+        # 2. Identity Forgery
+        identity = self.id_gen.generate_dna()
+        
+        # 3. Network Stealth
+        if self.net_man.verify_stealth():
+            conn = self.net_man.get_rotation()
+            
+        print(f"--- SUCCESS: {apk_name} CLONED IN STEALHT MODE ---")
 
 if __name__ == "__main__":
-    app = UltraCloner()
-    app.start_operation("Target_App_Name")
+    bot = UltraCloner()
+    bot.run_operation("TargetApp.apk")
