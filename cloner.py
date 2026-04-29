@@ -1,43 +1,41 @@
+from core.engine_linker import EngineLinker
+from core.sandbox.abi_manager import ABIManager
 from core.identity.identity_gen import DeviceGenerator
 from core.sandbox.patcher import BinaryPatcher
 from core.sandbox.signer import ProfessionalSigner
-from core.sandbox.layout_randomizer import LayoutRandomizer
-from core.sandbox.obfuscator import ResourceObfuscator
-from core.sandbox.padding import BinaryPadder
 import sys
 
 class UltraCloner:
     def __init__(self):
+        self.linker = EngineLinker()
+        self.abi = ABIManager()
         self.id_gen = DeviceGenerator()
         self.patcher = BinaryPatcher()
         self.signer = ProfessionalSigner()
 
-    def execute_rigorous_op(self, app_name):
-        print(f"--- [ULTRA-CLONER: PROFESSIONAL OBFUSCATION] ---")
+    def run_stable_clone(self, target_apk):
+        print("--- [ULTRA-CLONER: STABLE BUILD MODE] ---")
         
-        # 1. Deconstruct
-        self.patcher.deconstruct(f"{app_name}.apk")
+        # 1. Verification
+        if not self.linker.verify_stability():
+            return
+
+        # 2. Preparation
+        self.patcher.deconstruct(target_apk)
+        self.abi.align_architecture("data/work")
         
-        # 2. Obfuscation & Randomization
-        randomizer = LayoutRandomizer("data/work")
-        randomizer.shuffle_resources()
+        # 3. Customization
+        dna = self.id_gen.generate_dna()
         
-        obfuscator = ResourceObfuscator("data/work")
-        obfuscator.randomize_assets()
-        
-        # 3. Size Padding
-        padder = BinaryPadder()
-        padder.inject_junk("data/work")
-        
-        # 4. Finalize
-        unsigned = self.patcher.rebuild_and_sign(app_name)
+        # 4. Finalization
+        unsigned = self.patcher.rebuild_and_sign(target_apk)
         final_apk = self.signer.sign_binary(unsigned)
         
-        print(f"--- [SUCCESS: {final_apk} IS UNIQUE AT BINARY LEVEL] ---")
+        print(f"--- [STABLE CLONE COMPLETE: {final_apk}] ---")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python cloner.py <app_name>")
+        print("Usage: python cloner.py <target_apk>")
     else:
         engine = UltraCloner()
-        engine.execute_rigorous_op(sys.argv)
+        engine.run_stable_clone(sys.argv[1])
