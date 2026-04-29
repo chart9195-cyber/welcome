@@ -14,12 +14,14 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Build Cloner Engine
-        run: |
-          python3 cloner.py --test-mode
+      - name: Install Dependencies
+        run: pip install requests
 
-      - name: Upload Finished Clone
+      - name: Execute Cloner Engine
+        run: python3 cloner.py test_target.apk
+
+      - name: Upload Clone Artifact
         uses: actions/upload-artifact@v3
         with:
-          name: Ultra-Cloned-App
+          name: Cloned-Result
           path: data/output/*.apk
