@@ -4,7 +4,7 @@ from core.network.rotator import NetworkManager
 from core.sandbox.patcher import BinaryPatcher
 from core.sandbox.signer import ProfessionalSigner
 from core.sandbox.forensics import ForensicScrubber
-from modules/comms/bridge import CommsBridge
+from modules.comms.bridge import CommsBridge
 import sys
 
 class UltraCloner:
@@ -37,5 +37,8 @@ class UltraCloner:
         print(f"--- [OPERATION COMPLETE: {final_apk} IS GHOST-READY] ---")
 
 if __name__ == "__main__":
-    engine = UltraCloner()
-    engine.execute_rigorous_op("TargetApp.apk")
+    if len(sys.argv) < 2:
+        print("Usage: python cloner.py <target.apk>")
+    else:
+        engine = UltraCloner()
+        engine.execute_rigorous_op(sys.argv[1])
