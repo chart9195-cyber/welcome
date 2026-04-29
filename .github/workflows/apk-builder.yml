@@ -14,11 +14,12 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Install Android SDK Tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y apktool zipalign
-
-      - name: Run Build Test
+      - name: Build Cloner Engine
         run: |
           python3 cloner.py --test-mode
+
+      - name: Upload Finished Clone
+        uses: actions/upload-artifact@v3
+        with:
+          name: Ultra-Cloned-App
+          path: data/output/*.apk
