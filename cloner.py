@@ -1,31 +1,37 @@
 import sys
+import os
 from core.system_shield import SystemShield
-from core.dependency_resolver import DependencyResolver
-from core.network.mubeng_wrapper import MubengRotator
+from core.sandbox.patcher import BinaryPatcher
+from core.sandbox.mutator import PackageMutator
+from core.sandbox.signer import ProfessionalSigner
 
 class UltraCloner:
     def __init__(self):
         self.shield = SystemShield()
         if not self.shield.verify_environment(): sys.exit(1)
         
-        # Pull Engines
-        self.resolver = DependencyResolver()
-        self.resolver.fetch_engine("mubeng", "...")
-        
-        self.rotator = MubengRotator()
+        self.patcher = BinaryPatcher()
+        self.signer = ProfessionalSigner()
 
-    def deploy_super_clone(self, apk_name):
-        print(f"--- [ULTRA-CLONER: ENGINE ACTIVE] ---")
+    def run_primary_clone(self, apk_name):
+        print(f"--- [ULTRA-CLONER: PRIMARY MUTATION] ---")
         
-        # 1. Start IP Rotation
-        self.rotator.start_tunnel()
+        # 1. Deconstruct
+        self.patcher.deconstruct(apk_name)
         
-        # 2. Logic flows here (Identity -> Patch -> Sign)
-        print(f"[+] SUCCESS: {apk_name} is running behind a Mubeng shadow tunnel.")
+        # 2. Mutate (The Smart Move)
+        mutator = PackageMutator("data/work")
+        new_id = mutator.mutate_identity()
+        
+        if new_id:
+            # 3. Rebuild & Sign
+            unsigned = self.patcher.rebuild_and_sign(apk_name)
+            final_apk = self.signer.sign_binary(unsigned)
+            print(f"--- [SUCCESS: {final_apk} CREATED] ---")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python cloner.py <app.apk>")
+        print("Usage: python cloner.py <target_apk>")
     else:
-        app = UltraCloner()
-        app.deploy_super_clone(sys.argv)
+        engine = UltraCloner()
+        engine.run_primary_clone(sys.argv[1])
