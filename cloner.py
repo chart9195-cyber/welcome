@@ -1,28 +1,33 @@
 from core.identity.identity_gen import DeviceGenerator
 from core.network.rotator import NetworkManager
-from plugins.recon.scanner import ReconEngine
+from core.sandbox.patcher import BinaryPatcher
+from core.compatibility_check import check_env
 
 class UltraCloner:
     def __init__(self):
+        if not check_env():
+            sys.exit(1)
         self.id_gen = DeviceGenerator()
         self.net_man = NetworkManager()
-        self.recon = ReconEngine()
+        self.patcher = BinaryPatcher()
 
-    def run_operation(self, apk_name):
-        print("--- OPERATION START ---")
+    def create_super_clone(self, target_apk):
+        print(f"--- STARTING SMART CLONE: {target_apk} ---")
         
-        # 1. Recon
-        self.recon.scan_apk(apk_name)
+        # Generate the 'Ghost' Identity
+        dna = self.id_gen.generate_dna()
         
-        # 2. Identity Forgery
-        identity = self.id_gen.generate_dna()
+        # Prepare the 'Shadow' Network
+        self.net_man.get_rotation()
         
-        # 3. Network Stealth
-        if self.net_man.verify_stealth():
-            conn = self.net_man.get_rotation()
-            
-        print(f"--- SUCCESS: {apk_name} CLONED IN STEALHT MODE ---")
+        # Execute the Binary Patch
+        self.patcher.deconstruct(target_apk)
+        self.patcher.inject_stealth_hooks()
+        final_apk = self.patcher.rebuild_and_sign(target_apk)
+        
+        print(f"--- OPERATION COMPLETE: {final_apk} READY ---")
 
 if __name__ == "__main__":
-    bot = UltraCloner()
-    bot.run_operation("TargetApp.apk")
+    import sys
+    engine = UltraCloner()
+    engine.create_super_clone("Target.apk")
