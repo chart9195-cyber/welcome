@@ -1,41 +1,39 @@
-from core.engine_linker import EngineLinker
-from core.sandbox.abi_manager import ABIManager
+import sys
+import os
+
+# Add current directory to path to ensure clean imports
+sys.path.append(os.path.dirname(os.path.realpath(__file__)))
+
+from core.system_shield import SystemShield
 from core.identity.identity_gen import DeviceGenerator
 from core.sandbox.patcher import BinaryPatcher
-from core.sandbox.signer import ProfessionalSigner
-import sys
 
 class UltraCloner:
     def __init__(self):
-        self.linker = EngineLinker()
-        self.abi = ABIManager()
+        self.shield = SystemShield()
+        
+        # Immediate environment validation
+        if not self.shield.verify_environment():
+            print("[!] FATAL: System environment is not comfortable for operation.")
+            sys.exit(1)
+            
+        self.shield.secure_directories()
         self.id_gen = DeviceGenerator()
         self.patcher = BinaryPatcher()
-        self.signer = ProfessionalSigner()
 
-    def run_stable_clone(self, target_apk):
-        print("--- [ULTRA-CLONER: STABLE BUILD MODE] ---")
-        
-        # 1. Verification
-        if not self.linker.verify_stability():
-            return
-
-        # 2. Preparation
-        self.patcher.deconstruct(target_apk)
-        self.abi.align_architecture("data/work")
-        
-        # 3. Customization
-        dna = self.id_gen.generate_dna()
-        
-        # 4. Finalization
-        unsigned = self.patcher.rebuild_and_sign(target_apk)
-        final_apk = self.signer.sign_binary(unsigned)
-        
-        print(f"--- [STABLE CLONE COMPLETE: {final_apk}] ---")
+    def run_operation(self, apk_name):
+        print(f"--- [ULTRA-CLONER: STABLE EXECUTION] ---")
+        try:
+            # Operational Logic
+            dna = self.id_gen.generate_dna()
+            print(f"[+] Identity prepared for {apk_name}")
+            # Further stable logic here...
+        except Exception as e:
+            print(f"[CRITICAL ERROR] Operation failed: {e}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python cloner.py <target_apk>")
+        print("Usage: python cloner.py <app_name>")
     else:
         engine = UltraCloner()
-        engine.run_stable_clone(sys.argv[1])
+        engine.run_operation(sys.argv[1])
