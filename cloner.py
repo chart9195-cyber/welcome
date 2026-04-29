@@ -3,7 +3,8 @@ from core.identity.validator import StealthValidator
 from core.network.rotator import NetworkManager
 from core.sandbox.patcher import BinaryPatcher
 from core.sandbox.signer import ProfessionalSigner
-from plugins.recon.intelligence import IntelligenceEngine
+from core.sandbox.forensics import ForensicScrubber
+from modules/comms/bridge import CommsBridge
 import sys
 
 class UltraCloner:
@@ -11,31 +12,29 @@ class UltraCloner:
         self.id_gen = DeviceGenerator()
         self.net_man = NetworkManager()
         self.patcher = BinaryPatcher()
-        self.intel = IntelligenceEngine()
         self.signer = ProfessionalSigner()
+        self.comms = CommsBridge()
 
     def execute_rigorous_op(self, target_apk):
-        print("--- [ULTRA-CLONER: CRITICAL EXECUTION] ---")
+        print("--- [ULTRA-CLONER: SUPREME EXECUTION] ---")
         
-        # 1. Identity & Audit
+        # 1. Identity & Network
         dna = self.id_gen.generate_dna()
-        validator = StealthValidator(dna)
-        if not validator.audit_fingerprint():
-            print("[!] Operation Aborted: Stealth Integrity Failed.")
-            return
-
-        # 2. Intelligence Discovery
+        self.net_man.get_rotation()
+        
+        # 2. Patch & Scrub (The Forensic Move)
         self.patcher.deconstruct(target_apk)
-        self.intel.extract_secrets("data/work")
+        scrubber = ForensicScrubber(dna)
+        scrubber.scrub_directory("data/work/assets")
         
-        # 3. Patch & Build
-        self.patcher.inject_stealth_hooks()
-        unsigned_apk = self.patcher.rebuild_and_sign(target_apk)
+        # 3. Build & Secure
+        unsigned = self.patcher.rebuild_and_sign(target_apk)
+        final_apk = self.signer.sign_binary(unsigned)
         
-        # 4. Professional Finalization
-        final_apk = self.signer.sign_binary(unsigned_apk)
+        # 4. Verification Bridge
+        self.comms.init_baileys_link()
         
-        print(f"--- [DEPLOYMENT READY: {final_apk}] ---")
+        print(f"--- [OPERATION COMPLETE: {final_apk} IS GHOST-READY] ---")
 
 if __name__ == "__main__":
     engine = UltraCloner()
