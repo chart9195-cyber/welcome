@@ -1,0 +1,126 @@
+name: GSM Core – Create Number
+
+on:
+  workflow_dispatch:
+    inputs:
+      msisdn:
+        description: 'Phone number (leave empty to auto‑generate)'
+        required: false
+        default: ''
+      country_code:
+        description: 'Country code for auto‑generation (e.g. 234)'
+        required: false
+        default: '234'
+
+jobs:
+  create-number:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install Osmocom
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget telnet
+          sudo wget -q -O /etc/apt/trusted.gpg.d/osmocom.asc \
+            https://download.opensuse.org/repositories/network:/osmocom:/nightly/Debian_12/Release.key
+          echo "deb [signed-by=/etc/apt/trusted.gpg.d/osmocom.asc] https://download.opensuse.org/repositories/network:/osmocom:/nightly/Debian_12/ ./" \
+            | sudo tee /etc/apt/sources.list.d/osmocom-nightly.list
+          sudo apt-get update
+          sudo apt-get install -y osmo-hlr osmo-msc osmo-stp osmo-mgw
+
+      - name: Configure Osmocom
+        run: |
+          sudo mkdir -p /etc/osmocom /var/lib/osmocom
+          sudo touch /var/lib/osmocom/hlr.db
+
+          sudo tee /etc/osmocom/osmo-stp.cfg << 'CFG'
+          line vty
+           no login
+          cs7 instance 0
+           xua rkm routing-key-allocation dynamic-permitted
+           listen m3ua 2905
+           accept-asp-connections dynamic-permitted
+          CFG
+
+          sudo tee /etc/osmocom/osmo-hlr.cfg << 'CFG'
+          line vty
+           no login
+           bind 0.0.0.0
+          hlr
+           database /var/lib/osmocom/hlr.db
+           subscriber-create-on-demand 2
+           gsup
+            bind ip 127.0.0.1
+          ctrl
+           bind 127.0.0.1
+          CFG
+
+          sudo tee /etc/osmocom/osmo-msc.cfg << 'CFG'
+          line vty
+           no login
+           bind 0.0.0.0
+          network
+           network country code 001
+           mobile network code 01
+           short name OsmoMSC
+           long name OsmoMSC
+           encryption a5 0
+           authentication optional
+          msc
+           mgw remote-ip 127.0.0.1
+           hlr
+            remote-ip 127.0.0.1
+            remote-port 4222
+          CFG
+
+          sudo tee /etc/osmocom/osmo-mgw.cfg << 'CFG'
+          line vty
+           no login
+          mgcp
+           bind ip 127.0.0.1
+           bind port 2427
+           rtp port-range 4002 16000
+           rtp bind-ip 127.0.0.1
+           number endpoints 31
+          CFG
+
+      - name: Start Osmocom daemons
+        run: |
+          sudo osmo-stp -c /etc/osmocom/osmo-stp.cfg &
+          sleep 1
+          sudo osmo-hlr -c /etc/osmocom/osmo-hlr.cfg &
+          sleep 1
+          sudo osmo-mgw -c /etc/osmocom/osmo-mgw.cfg &
+          sleep 1
+          sudo osmo-msc -c /etc/osmocom/osmo-msc.cfg &
+          sleep 2
+
+      - name: Create subscriber
+        id: create
+        run: |
+          # Generate IMSI and MSISDN if not provided
+          if [ -z "$MSISDN" ]; then
+            MSISDN="$COUNTRY_CODE$(printf '%08d' $RANDOM)"
+          fi
+          IMSI="001010$(printf '%010d' $RANDOM)"
+          
+          # Create subscriber via VTY
+          echo -e "enable\nsubscriber imsi $IMSI create\nupdate subscriber imsi $IMSI set msisdn $MSISDN" \
+            | telnet 127.0.0.1 4258
+          
+          echo "imsi=$IMSI" >> $GITHUB_OUTPUT
+          echo "msisdn=$MSISDN" >> $GITHUB_OUTPUT
+          
+          echo "✅ Number created: +$MSISDN (IMSI: $IMSI)"
+        env:
+          MSISDN: ${{ inputs.msisdn }}
+          COUNTRY_CODE: ${{ inputs.country_code }}
+
+      - name: Push to PhantomLink subscriber panel
+        run: |
+          curl -s -X POST https://oga1234-phantomlink-gsm.hf.space/api/subscriber/create \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.HF_TOKEN }}" \
+            -d "{\"imsi\":\"$IMSI\",\"msisdn\":\"$MSISDN\"}"
+        env:
+          IMSI: ${{ steps.create.outputs.imsi }}
+          MSISDN: ${{ steps.create.outputs.msisdn }}
