@@ -16,14 +16,11 @@ jobs:
   create-number:
     runs-on: ubuntu-24.04
     steps:
-      - name: Install Osmocom
+      - name: Install Osmocom from Ubuntu universe
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget telnet
-          # Use [trusted=yes] to avoid GPG key failures on GitHub Actions
-          echo "deb [trusted=yes] https://downloads.osmocom.org/packages/osmocom:/latest/Debian_12 ./" \
-            | sudo tee /etc/apt/sources.list.d/osmocom-latest.list
-          sudo apt-get update
+          sudo apt-get install -y telnet
+          # Ubuntu 24.04 already has Osmocom in universe — no external repo needed
           sudo apt-get install -y osmo-hlr osmo-msc osmo-stp osmo-mgw
 
       - name: Configure Osmocom
@@ -85,13 +82,15 @@ jobs:
       - name: Start Osmocom daemons
         run: |
           sudo osmo-stp -c /etc/osmocom/osmo-stp.cfg &
-          sleep 1
-          sudo osmo-hlr -c /etc/osmocom/osmo-hlr.cfg &
-          sleep 1
-          sudo osmo-mgw -c /etc/osmocom/osmo-mgw.cfg &
-          sleep 1
-          sudo osmo-msc -c /etc/osmocom/osmo-msc.cfg &
           sleep 2
+          sudo osmo-hlr -c /etc/osmocom/osmo-hlr.cfg &
+          sleep 2
+          sudo osmo-mgw -c /etc/osmocom/osmo-mgw.cfg &
+          sleep 2
+          sudo osmo-msc -c /etc/osmocom/osmo-msc.cfg &
+          sleep 3
+          # Verify all daemons are running
+          ps aux | grep osmo
 
       - name: Create subscriber
         id: create
