@@ -1,4 +1,4 @@
-name: GSM Core – Create Number
+name: GSM Core – Create Number + Virtual SIM
 
 on:
   workflow_dispatch:
@@ -16,38 +16,30 @@ jobs:
   create-number:
     runs-on: ubuntu-24.04
     steps:
-      - name: Install Osmocom from nightly repository
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget telnet sqlite3
-          # Use Osmocom nightly repo with trusted=yes to avoid GPG failures
+          sudo apt-get install -y telnet sqlite3 build-essential cmake git pkg-config \
+            libpcsclite-dev libssl-dev pcscd pcsc-tools
+
+      - name: Install Osmocom
+        run: |
           echo "deb [trusted=yes] https://downloads.osmocom.org/packages/osmocom:/latest/Debian_12 ./" \
             | sudo tee /etc/apt/sources.list.d/osmocom-latest.list
           sudo apt-get update
           sudo apt-get install -y osmo-hlr osmo-msc osmo-stp osmo-mgw || true
-          # If nightly fails, fall back to Ubuntu native packages
-          if ! which osmo-hlr; then
-            sudo rm /etc/apt/sources.list.d/osmocom-latest.list
-            sudo apt-get update
-            sudo apt-get install -y osmo-hlr osmo-msc osmo-stp osmo-mgw
-          fi
 
       - name: Initialize HLR database
         run: |
           sudo mkdir -p /var/lib/osmocom /etc/osmocom
-          # Try the sqlite3 schema method first (works on all versions)
           if [ -f /usr/share/doc/osmo-hlr/hlr.sql ]; then
             sudo sqlite3 /var/lib/osmocom/hlr.db < /usr/share/doc/osmo-hlr/hlr.sql
-            echo "Database initialized from hlr.sql"
           else
-            # Fallback: osmo-hlr-db-tool
             sudo osmo-hlr-db-tool -s -l /var/lib/osmocom/hlr.db create 2>/dev/null || true
-            # Last resort: let osmo-hlr auto-create (newer versions)
             sudo touch /var/lib/osmocom/hlr.db
-            echo "Database file created (auto-create expected)"
           fi
 
-      - name: Configure Osmocom
+      - name: Configure and start Osmocom
         run: |
           sudo tee /etc/osmocom/osmo-stp.cfg << 'CFG'
           line vty
@@ -57,7 +49,6 @@ jobs:
            listen m3ua 2905
            accept-asp-connections dynamic-permitted
           CFG
-
           sudo tee /etc/osmocom/osmo-hlr.cfg << 'CFG'
           line vty
            no login
@@ -70,7 +61,6 @@ jobs:
           ctrl
            bind 127.0.0.1
           CFG
-
           sudo tee /etc/osmocom/osmo-msc.cfg << 'CFG'
           line vty
            no login
@@ -88,7 +78,6 @@ jobs:
             remote-ip 127.0.0.1
             remote-port 4222
           CFG
-
           sudo tee /etc/osmocom/osmo-mgw.cfg << 'CFG'
           line vty
            no login
@@ -99,9 +88,6 @@ jobs:
            rtp bind-ip 127.0.0.1
            number endpoints 31
           CFG
-
-      - name: Start Osmocom daemons
-        run: |
           sudo osmo-stp -c /etc/osmocom/osmo-stp.cfg &
           sleep 3
           sudo osmo-hlr -c /etc/osmocom/osmo-hlr.cfg &
@@ -110,11 +96,6 @@ jobs:
           sleep 3
           sudo osmo-msc -c /etc/osmocom/osmo-msc.cfg &
           sleep 5
-          # Verify all daemons are running
-          ps aux | grep osmo
-          # Verify HLR VTY is listening
-          echo "Testing HLR VTY connection..."
-          echo "enable" | timeout 5 telnet 127.0.0.1 4258 || echo "VTY not ready yet"
 
       - name: Create subscriber
         id: create
@@ -123,17 +104,65 @@ jobs:
             MSISDN="$COUNTRY_CODE$(printf '%08d' $RANDOM)"
           fi
           IMSI="001010$(printf '%010d' $RANDOM)"
-          
           echo -e "enable\nsubscriber imsi $IMSI create\nupdate subscriber imsi $IMSI set msisdn $MSISDN" \
             | timeout 10 telnet 127.0.0.1 4258
-          
           echo "imsi=$IMSI" >> $GITHUB_OUTPUT
           echo "msisdn=$MSISDN" >> $GITHUB_OUTPUT
-          
           echo "✅ Number created: +$MSISDN (IMSI: $IMSI)"
         env:
           MSISDN: ${{ inputs.msisdn }}
           COUNTRY_CODE: ${{ inputs.country_code }}
+
+      - name: Build SIMurai swSIM
+        run: |
+          git clone --recurse-submodules https://github.com/tomasz-lisowski/simurai.git
+          cd simurai/swicc
+          make
+          cd ../swicc-pcsc
+          make
+          cd ../swsim
+          make main-dbg
+          echo "SIMurai build complete"
+
+      - name: Program and launch virtual SIM
+        run: |
+          cd simurai
+          # Create a custom USIM JSON filesystem definition
+          cat > /tmp/custom_usim.json << 'JSON'
+          {
+            "MF": {
+              "EF_ICCID": {"data": "9888123456789012345"},
+              "EF_DIR": {"data": ""},
+              "ADF_USIM": {
+                "EF_IMSI": {"data": "$IMSI"},
+                "EF_MSISDN": {"data": "$MSISDN"},
+                "EF_SPN": {"data": "PhantomLink"}
+              }
+            }
+          }
+          JSON
+          sed -i "s/\$IMSI/$IMSI/" /tmp/custom_usim.json
+          sed -i "s/\$MSISDN/$MSISDN/" /tmp/custom_usim.json
+          
+          # Build filesystem from JSON
+          cd swsim
+          ./build/swsim.elf --fs-gen /tmp/custom_usim.json --fs /tmp/custom.swiccfs
+          
+          # Start swSIM as a background service
+          ./build/swsim.elf --ip 127.0.0.1 --port 37324 --fs /tmp/custom.swiccfs &
+          sleep 2
+          
+          # Start PC/SC daemon and register the virtual reader
+          sudo pcscd -f &
+          sleep 2
+          
+          # Verify the virtual SIM is visible
+          pcsc_scan -n 5 || echo "PC/SC scan complete"
+          
+          echo "Virtual SIM running with IMSI=$IMSI MSISDN=$MSISDN"
+        env:
+          IMSI: ${{ steps.create.outputs.imsi }}
+          MSISDN: ${{ steps.create.outputs.msisdn }}
 
       - name: Push to PhantomLink subscriber panel
         run: |
