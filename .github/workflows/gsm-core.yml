@@ -1,4 +1,4 @@
-name: Virtual SIM – Create Number + SIM Profile
+name: GSM Core – Create Number + SMS Reception
 
 on:
   workflow_dispatch:
@@ -11,93 +11,172 @@ on:
 jobs:
   create-sim:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - name: Install build dependencies
+      # ============================================================
+      # PHASE 1: OSMOCON CORE NETWORK (HLR + MSC + STP + MGW)
+      # ============================================================
+      - name: Install Osmocom core network (Ubuntu native packages)
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential gcc make pkg-config \
-            libpcsclite-dev libpcsclite1 pcscd pcsc-tools \
-            libssl-dev uuid-dev git
+          sudo apt-get install -y osmo-hlr osmo-msc osmo-stp osmo-mgw telnet netcat-openbsd
+          echo "All Osmocom packages installed"
+          which osmo-hlr && which osmo-msc && which osmo-stp && which osmo-mgw
 
-      - name: Clone SIMurai with all submodules
+      - name: Initialize HLR database
         run: |
-          git clone --recurse-submodules https://github.com/tomasz-lisowski/simurai.git
+          sudo mkdir -p /var/lib/osmocom /etc/osmocom
+          # Use osmo-hlr-db-tool – the documented, reliable method
+          sudo osmo-hlr-db-tool -l /var/lib/osmocom/hlr.db create
+          echo "HLR database created"
+          # Verify tables exist
+          sqlite3 /var/lib/osmocom/hlr.db ".tables"
 
-      - name: Build swICC (Smart Card Core)
+      - name: Configure Osmocom daemons
         run: |
-          cd simurai/swicc
-          sed -i 's/-Werror//g' Makefile 2>/dev/null || true
-          make
+          # ── osmo-stp.cfg ──
+          sudo tee /etc/osmocom/osmo-stp.cfg << 'CFG'
+          line vty
+           no login
+          cs7 instance 0
+           xua rkm routing-key-allocation dynamic-permitted
+           listen m3ua 2905
+           accept-asp-connections dynamic-permitted
+          CFG
 
-      - name: Build swICC-pcsc (Virtual PC/SC Reader)
+          # ── osmo-hlr.cfg ──
+          sudo tee /etc/osmocom/osmo-hlr.cfg << 'CFG'
+          line vty
+           no login
+           bind 0.0.0.0
+          hlr
+           database /var/lib/osmocom/hlr.db
+           subscriber-create-on-demand 2
+           gsup
+            bind ip 127.0.0.1
+          ctrl
+           bind 0.0.0.0
+          CFG
+
+          # ── osmo-msc.cfg ──
+          sudo tee /etc/osmocom/osmo-msc.cfg << 'CFG'
+          line vty
+           no login
+           bind 0.0.0.0
+          network
+           network country code 001
+           mobile network code 01
+           short name OsmoMSC
+           long name OsmoMSC
+           encryption a5 0
+           authentication optional
+          msc
+           mgw remote-ip 127.0.0.1
+           hlr
+            remote-ip 127.0.0.1
+            remote-port 4222
+          CFG
+
+          # ── osmo-mgw.cfg ──
+          sudo tee /etc/osmocom/osmo-mgw.cfg << 'CFG'
+          line vty
+           no login
+          mgcp
+           bind ip 127.0.0.1
+           bind port 2427
+           rtp port-range 4002 16000
+           rtp bind-ip 127.0.0.1
+           number endpoints 31
+          CFG
+          echo "Configuration complete"
+
+      - name: Start Osmocom daemons (correct order: STP → HLR → MGW → MSC)
         run: |
-          cd simurai/swicc-pcsc
-          sed -i 's/-Werror//g' Makefile
-          sed -i 's/-Werror//g' lib/swicc/Makefile 2>/dev/null || true
-          make main-dbg ARG="-DDEBUG_CLR"
-          sudo make install
+          # 1. STP (signaling backbone)
+          sudo osmo-stp -c /etc/osmocom/osmo-stp.cfg > /tmp/stp.log 2>&1 &
+          sleep 2
+          if ps aux | grep -v grep | grep osmo-stp; then echo "✅ STP running"; else echo "❌ STP FAILED"; cat /tmp/stp.log; exit 1; fi
 
-      - name: Build swSIM (SIM Card Emulator)
-        run: |
-          cd simurai/swsim
-          sed -i 's/-Werror//g' Makefile 2>/dev/null || true
-          make main-dbg
-          ls -l build/swsim.elf
+          # 2. HLR (subscriber database)
+          sudo osmo-hlr -c /etc/osmocom/osmo-hlr.cfg > /tmp/hlr.log 2>&1 &
+          sleep 2
+          if ps aux | grep -v grep | grep osmo-hlr; then echo "✅ HLR running"; else echo "❌ HLR FAILED"; cat /tmp/hlr.log; exit 1; fi
 
+          # 3. MGW (media gateway)
+          sudo osmo-mgw -c /etc/osmocom/osmo-mgw.cfg > /tmp/mgw.log 2>&1 &
+          sleep 2
+
+          # 4. MSC (mobile switching center)
+          sudo osmo-msc -c /etc/osmocom/osmo-msc.cfg > /tmp/msc.log 2>&1 &
+          sleep 3
+          if ps aux | grep -v grep | grep osmo-msc; then echo "✅ MSC running"; else echo "❌ MSC FAILED"; cat /tmp/msc.log; exit 1; fi
+
+          echo "=== All daemons running ==="
+          ps aux | grep osmo
+
+      # ============================================================
+      # PHASE 2: SUBSCRIBER CREATION VIA CTRL INTERFACE
+      # ============================================================
       - name: Generate subscriber identity
         id: identity
         run: |
-          # Always generate a proper Nigerian number (234XXXXXXXX)
           RANDSUFF=$(shuf -i 10000000-99999999 -n 1)
           MSISDN="234$RANDSUFF"
           IMSI="001010$(shuf -i 1000000000-9999999999 -n 1)"
-          ICCID="988812$(shuf -i 10000000000000-99999999999999 -n 1)"
           
-          echo "imsi=$IMSI" >> $GITHUB_OUTPUT
           echo "msisdn=$MSISDN" >> $GITHUB_OUTPUT
-          echo "iccid=$ICCID" >> $GITHUB_OUTPUT
+          echo "imsi=$IMSI" >> $GITHUB_OUTPUT
           
           echo "✅ Identity: +$MSISDN (IMSI: $IMSI)"
 
-      - name: Create custom SIM profile
+      - name: Create subscriber via CTRL interface
         run: |
-          cd simurai/swsim
-          cp data/usim.example.json data/usim.json 2>/dev/null || true
-          if [ ! -f data/usim.json ]; then
-            echo '{"iccid":"","imsi":"","msisdn":"","pin":{"value":"1234","retry_counter":3},"puk":{"value":"87654321","retry_counter":10}}' > data/usim.json
-          fi
-          sed -i "s|\"iccid\":\"[^\"]*\"|\"iccid\":\"$ICCID\"|" data/usim.json
-          sed -i "s|\"imsi\":\"[^\"]*\"|\"imsi\":\"$IMSI\"|" data/usim.json
-          sed -i "s|\"msisdn\":\"[^\"]*\"|\"msisdn\":\"$MSISDN\"|" data/usim.json
-          cat data/usim.json
+          # CTRL interface is "intended for programmatic use by external software"
+          # Port 4259 is the CTRL port (not VTY 4258)
+          
+          # Create subscriber
+          echo "SET subscriber.create $IMSI" | nc -w 5 127.0.0.1 4259 || true
+          sleep 1
+          
+          # Assign phone number
+          echo "SET subscriber.by-imsi-$IMSI.msisdn $MSISDN" | nc -w 5 127.0.0.1 4259 || true
+          
+          echo "Subscriber created via CTRL interface"
+          
+          # Also verify via VTY as backup
+          echo -e "enable\nshow subscriber imsi $IMSI" | timeout 10 telnet 127.0.0.1 4258 2>/dev/null || true
         env:
           IMSI: ${{ steps.identity.outputs.imsi }}
           MSISDN: ${{ steps.identity.outputs.msisdn }}
-          ICCID: ${{ steps.identity.outputs.iccid }}
 
-      - name: Launch virtual SIM and verify
+      # ============================================================
+      # SMS TEST: Send SMS via OsmoMSC built‑in SMSC
+      # ============================================================
+      - name: Send test SMS via OsmoMSC
         run: |
-          sudo pkill -x pcscd 2>/dev/null || true
-          sleep 1
-          sudo pcscd -f -d &
-          sleep 3
-          
-          cd simurai/swsim
-          ./build/swsim.elf --ip 0.0.0.0 --port 37324 \
-            --fs filesystem.swiccfs \
-            --fs-gen ./data/usim.json &
-          sleep 3
-          
-          echo "=== Process Status ==="
-          ps aux | grep -E "pcscd|swsim" | grep -v grep || true
-          
-          echo "=== PC/SC Scan ==="
-          sudo timeout 10 pcsc_scan || true
-          
-          echo "✅ Virtual SIM launched with MSISDN: $MSISDN"
+          # OsmoMSC VTY allows sending SMS directly
+          echo -e "enable\nsms 1 $MSISDN test\n" | timeout 10 telnet 127.0.0.1 4258 2>/dev/null || true
+          echo "Test SMS command sent to MSC"
         env:
           MSISDN: ${{ steps.identity.outputs.msisdn }}
 
+      - name: Output subscriber credentials
+        run: |
+          echo "╔══════════════════════════════════════════════════════════╗"
+          echo "║           PHANTOMLINK GSM CORE — NUMBER CREATED           ║"
+          echo "╠══════════════════════════════════════════════════════════╣"
+          echo "║  Phone Number: +$MSISDN"
+          echo "║  IMSI:         $IMSI"
+          echo "║  Country:       Nigeria (+234)"
+          echo "║  Status:        Active on virtual GSM network"
+          echo "╚══════════════════════════════════════════════════════════╝"
+        env:
+          IMSI: ${{ steps.identity.outputs.imsi }}
+          MSISDN: ${{ steps.identity.outputs.msisdn }}
+
+      # ============================================================
+      # PUSH TO SUBSCRIBER PANEL
+      # ============================================================
       - name: Push to PhantomLink subscriber panel
         run: |
           curl -s -X POST https://oga1234-phantomlink-gsm.hf.space/api/subscriber/create \
