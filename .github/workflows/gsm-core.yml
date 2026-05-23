@@ -19,38 +19,43 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake gcc pkg-config \
+          sudo apt-get install -y build-essential gcc make pkg-config \
             libpcsclite-dev libpcsclite1 pcscd pcsc-tools \
             libssl-dev uuid-dev git
 
-      - name: Clone SIMurai
+      - name: Clone SIMurai with all submodules
         run: |
           git clone --recurse-submodules https://github.com/tomasz-lisowski/simurai.git
+          echo "=== Verify swsim submodule ==="
+          ls -la simurai/swsim/
+          ls -la simurai/swsim/Makefile
 
-      - name: Build swICC core
+      - name: Build swICC (Smart Card Core)
         run: |
           cd simurai/swicc
-          # Fix: remove -Werror (GCC 13 compatibility)
+          # Fix: remove -Werror for GCC 13 compatibility
           sed -i 's/-Werror//g' Makefile 2>/dev/null || true
           make
+          echo "swICC built"
 
-      - name: Build swICC-pcsc (virtual reader)
+      - name: Build swICC-pcsc (Virtual PC/SC Reader)
         run: |
           cd simurai/swicc-pcsc
-          # Fix: remove -Werror from top-level and embedded swicc Makefile
+          # Fix: remove -Werror from top-level and embedded swicc
           sed -i 's/-Werror//g' Makefile
           sed -i 's/-Werror//g' lib/swicc/Makefile 2>/dev/null || true
           make main-dbg ARG="-DDEBUG_CLR"
+          sudo make install
+          echo "swICC-pcsc built and installed"
 
-      - name: Build swSIM (card emulator)
+      - name: Build swSIM (SIM Card Emulator – uses Make, not CMake)
         run: |
           cd simurai/swsim
-          mkdir -p build && cd build
-          # Fix: remove -Werror (GCC 13 compatibility)
-          cp ../CMakeLists.txt ../CMakeLists.txt.bak
-          sed -i 's/-Werror//g' ../CMakeLists.txt
-          cmake .. -DCMAKE_BUILD_TYPE=Debug
-          make -j$(nproc)
+          # Fix: remove -Werror for GCC 13 compatibility
+          sed -i 's/-Werror//g' Makefile 2>/dev/null || true
+          make main-dbg
+          ls -la build/swsim.elf
+          echo "swSIM built"
 
       - name: Generate subscriber identity
         id: identity
@@ -65,11 +70,11 @@ jobs:
           echo "msisdn=$MSISDN" >> $GITHUB_OUTPUT
           echo "iccid=$ICCID" >> $GITHUB_OUTPUT
           
-          echo "✅ Identity generated: +$MSISDN (IMSI: $IMSI)"
+          echo "✅ Identity: +$MSISDN (IMSI: $IMSI)"
 
       - name: Create custom USIM JSON
         run: |
-          cat > /tmp/usim.json << JSON
+          cat > simurai/swsim/data/usim.json << JSON
           {
             "iccid": "$ICCID",
             "imsi": "$IMSI",
@@ -78,11 +83,11 @@ jobs:
             "puk": {"value": "87654321", "retry_counter": 10}
           }
           JSON
-          sed -i "s/\$ICCID/$ICCID/" /tmp/usim.json
-          sed -i "s/\$IMSI/$IMSI/" /tmp/usim.json
-          sed -i "s/\$MSISDN/$MSISDN/" /tmp/usim.json
-          
-          echo "SIM profile created"
+          sed -i "s/\$ICCID/$ICCID/" simurai/swsim/data/usim.json
+          sed -i "s/\$IMSI/$IMSI/" simurai/swsim/data/usim.json
+          sed -i "s/\$MSISDN/$MSISDN/" simurai/swsim/data/usim.json
+          echo "SIM profile:"
+          cat simurai/swsim/data/usim.json
         env:
           IMSI: ${{ steps.identity.outputs.imsi }}
           MSISDN: ${{ steps.identity.outputs.msisdn }}
@@ -90,15 +95,19 @@ jobs:
 
       - name: Launch virtual SIM and verify
         run: |
+          # Kill old pcscd
           sudo pkill -x pcscd 2>/dev/null || true
           sleep 1
+          
+          # Start pcscd in foreground debug mode
           sudo pcscd -f -d &
           sleep 3
           
-          cd simurai/swsim/build
-          ./swsim.elf --ip 0.0.0.0 --port 37324 \
-            --fs /tmp/sim-filesystem.swiccfs \
-            --fs-gen /tmp/usim.json &
+          # Launch swSIM (uses Make, binary at build/swsim.elf)
+          cd simurai/swsim
+          ./build/swsim.elf --ip 0.0.0.0 --port 37324 \
+            --fs filesystem.swiccfs \
+            --fs-gen ./data/usim.json &
           sleep 3
           
           echo "=== PC/SC Scan ==="
