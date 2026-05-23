@@ -23,21 +23,18 @@ jobs:
         run: |
           sudo mkdir -p /var/lib/osmocom /etc/osmocom
           sudo osmo-hlr-db-tool -l /var/lib/osmocom/hlr.db create
-          # Fix: database is root-owned; make it readable/writable by everyone
           sudo chmod 666 /var/lib/osmocom/hlr.db
           echo "HLR database created and permissions fixed"
-          # Verify tables with sudo
           sudo sqlite3 /var/lib/osmocom/hlr.db ".tables"
 
       - name: Configure Osmocom daemons
         run: |
+          # Minimal STP config for Ubuntu 24.04 (v1.6.0)
+          # accept-asp-connections and xua rkm are NOT available in this version
           sudo tee /etc/osmocom/osmo-stp.cfg << 'CFG'
           line vty
            no login
           cs7 instance 0
-           xua rkm routing-key-allocation dynamic-permitted
-           listen m3ua 2905
-           accept-asp-connections dynamic-permitted
           CFG
 
           sudo tee /etc/osmocom/osmo-hlr.cfg << 'CFG'
@@ -119,7 +116,6 @@ jobs:
 
       - name: Create subscriber via VTY
         run: |
-          # Use VTY (telnet) – the documented, reliable method
           echo -e "enable\nsubscriber imsi $IMSI create\nupdate subscriber imsi $IMSI set msisdn $MSISDN" \
             | timeout 10 telnet 127.0.0.1 4258
           echo "Subscriber created via VTY"
