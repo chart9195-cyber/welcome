@@ -7,10 +7,6 @@ on:
         description: 'Phone number (leave empty to auto‑generate)'
         required: false
         default: ''
-      country_code:
-        description: 'Country code (e.g. 234 for Nigeria)'
-        required: false
-        default: '234'
 
 jobs:
   create-sim:
@@ -51,11 +47,9 @@ jobs:
       - name: Generate subscriber identity
         id: identity
         run: |
-          # Generate a proper random 8‑digit suffix
+          # Always generate a proper Nigerian number (234XXXXXXXX)
           RANDSUFF=$(shuf -i 10000000-99999999 -n 1)
-          if [ -z "$MSISDN" ]; then
-            MSISDN="$COUNTRY_CODE$RANDSUFF"
-          fi
+          MSISDN="234$RANDSUFF"
           IMSI="001010$(shuf -i 1000000000-9999999999 -n 1)"
           ICCID="988812$(shuf -i 10000000000000-99999999999999 -n 1)"
           
@@ -97,7 +91,6 @@ jobs:
           echo "=== Process Status ==="
           ps aux | grep -E "pcscd|swsim" | grep -v grep || true
           
-          # Run pcsc_scan with sudo to avoid permission errors
           echo "=== PC/SC Scan ==="
           sudo timeout 10 pcsc_scan || true
           
