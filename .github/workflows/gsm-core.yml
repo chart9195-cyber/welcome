@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       msisdn:
-        description: 'Phone number (leave empty to auto‑generate)'
+        description: 'Phone number (leave empty to auto-generate)'
         required: false
         default: ''
 
@@ -13,19 +13,21 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Install Osmocom core network (Ubuntu native packages)
+      - name: Install Osmocom core network
         run: |
           sudo apt-get update
           sudo apt-get install -y osmo-hlr osmo-msc osmo-stp osmo-mgw telnet netcat-openbsd
           echo "All Osmocom packages installed"
-          which osmo-hlr && which osmo-msc && which osmo-stp && which osmo-mgw
 
       - name: Initialize HLR database
         run: |
           sudo mkdir -p /var/lib/osmocom /etc/osmocom
           sudo osmo-hlr-db-tool -l /var/lib/osmocom/hlr.db create
-          echo "HLR database created"
-          sqlite3 /var/lib/osmocom/hlr.db ".tables"
+          # Fix: database is root-owned; make it readable/writable by everyone
+          sudo chmod 666 /var/lib/osmocom/hlr.db
+          echo "HLR database created and permissions fixed"
+          # Verify tables with sudo
+          sudo sqlite3 /var/lib/osmocom/hlr.db ".tables"
 
       - name: Configure Osmocom daemons
         run: |
@@ -86,13 +88,13 @@ jobs:
           # 1. STP
           sudo osmo-stp -c /etc/osmocom/osmo-stp.cfg > /tmp/stp.log 2>&1 &
           sleep 2
-          pgrep -x osmo-stp || { echo "STP failed to start"; cat /tmp/stp.log; exit 1; }
+          pgrep -x osmo-stp || { echo "STP failed"; cat /tmp/stp.log; exit 1; }
           echo "STP running"
 
           # 2. HLR
           sudo osmo-hlr -c /etc/osmocom/osmo-hlr.cfg > /tmp/hlr.log 2>&1 &
           sleep 2
-          pgrep -x osmo-hlr || { echo "HLR failed to start"; cat /tmp/hlr.log; exit 1; }
+          pgrep -x osmo-hlr || { echo "HLR failed"; cat /tmp/hlr.log; exit 1; }
           echo "HLR running"
 
           # 3. MGW
@@ -102,11 +104,8 @@ jobs:
           # 4. MSC
           sudo osmo-msc -c /etc/osmocom/osmo-msc.cfg > /tmp/msc.log 2>&1 &
           sleep 3
-          pgrep -x osmo-msc || { echo "MSC failed to start"; cat /tmp/msc.log; exit 1; }
+          pgrep -x osmo-msc || { echo "MSC failed"; cat /tmp/msc.log; exit 1; }
           echo "MSC running"
-
-          echo "All daemons running"
-          ps aux | grep osmo
 
       - name: Generate subscriber identity
         id: identity
@@ -118,21 +117,20 @@ jobs:
           echo "imsi=$IMSI" >> $GITHUB_OUTPUT
           echo "Identity: +$MSISDN (IMSI: $IMSI)"
 
-      - name: Create subscriber via CTRL interface
+      - name: Create subscriber via VTY
         run: |
-          echo "SET subscriber.create $IMSI" | nc -w 5 127.0.0.1 4259 || true
-          sleep 1
-          echo "SET subscriber.by-imsi-$IMSI.msisdn $MSISDN" | nc -w 5 127.0.0.1 4259 || true
-          echo "Subscriber created via CTRL interface"
-          echo -e "enable\nshow subscriber imsi $IMSI" | timeout 10 telnet 127.0.0.1 4258 2>/dev/null || true
+          # Use VTY (telnet) – the documented, reliable method
+          echo -e "enable\nsubscriber imsi $IMSI create\nupdate subscriber imsi $IMSI set msisdn $MSISDN" \
+            | timeout 10 telnet 127.0.0.1 4258
+          echo "Subscriber created via VTY"
         env:
           IMSI: ${{ steps.identity.outputs.imsi }}
           MSISDN: ${{ steps.identity.outputs.msisdn }}
 
-      - name: Send test SMS via OsmoMSC
+      - name: Send test SMS via OsmoMSC VTY
         run: |
           echo -e "enable\nsms 1 $MSISDN test\n" | timeout 10 telnet 127.0.0.1 4258 2>/dev/null || true
-          echo "Test SMS command sent to MSC"
+          echo "Test SMS sent"
         env:
           MSISDN: ${{ steps.identity.outputs.msisdn }}
 
@@ -144,7 +142,6 @@ jobs:
           echo "  Phone Number: +$MSISDN"
           echo "  IMSI:         $IMSI"
           echo "  Country:       Nigeria (+234)"
-          echo "  Status:        Active on virtual GSM network"
           echo "======================================================"
         env:
           IMSI: ${{ steps.identity.outputs.imsi }}
@@ -156,7 +153,6 @@ jobs:
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${{ secrets.HF_TOKEN }}" \
             -d "{\"imsi\":\"$IMSI\",\"msisdn\":\"$MSISDN\"}"
-          echo "Pushed to subscriber panel"
         env:
           IMSI: ${{ steps.identity.outputs.imsi }}
           MSISDN: ${{ steps.identity.outputs.msisdn }}
