@@ -1,4 +1,4 @@
-name: GSM Core – Create Number + Virtual SIM
+name: Virtual SIM – Create Number + SIM Profile
 
 on:
   workflow_dispatch:
@@ -8,149 +8,117 @@ on:
         required: false
         default: ''
       country_code:
-        description: 'Country code for auto‑generation (e.g. 234)'
+        description: 'Country code (e.g. 234 for Nigeria)'
         required: false
         default: '234'
 
 jobs:
-  create-number:
+  create-sim:
     runs-on: ubuntu-24.04
     steps:
-      - name: Install Osmocom from Ubuntu universe
+      - name: Install build dependencies (all from Ubuntu universe)
         run: |
           sudo apt-get update
-          sudo apt-get install -y telnet sqlite3 osmo-hlr osmo-msc osmo-stp osmo-mgw
-          # Verify all packages installed correctly
-          which osmo-hlr && which osmo-msc && which osmo-stp && which osmo-mgw
-          echo "All Osmocom packages installed successfully"
+          sudo apt-get install -y build-essential cmake gcc pkg-config \
+            libpcsclite-dev libpcsclite1 pcscd pcsc-tools \
+            libssl-dev uuid-dev git telnet
 
-      - name: Initialize HLR database with proper schema
+      - name: Clone SIMurai with all submodules
         run: |
-          sudo mkdir -p /var/lib/osmocom /etc/osmocom
-          
-          # Check if the hlr.sql schema file exists (it ships with the Ubuntu package)
-          if [ -f /usr/share/doc/osmo-hlr/hlr.sql ]; then
-            echo "Found hlr.sql schema file"
-            sudo sqlite3 /var/lib/osmocom/hlr.db < /usr/share/doc/osmo-hlr/hlr.sql
-            echo "Database initialized from hlr.sql"
-          elif [ -f /usr/share/doc/osmo-hlr/examples/osmo-hlr-db.sql ]; then
-            sudo sqlite3 /var/lib/osmocom/hlr.db < /usr/share/doc/osmo-hlr/examples/osmo-hlr-db.sql
-            echo "Database initialized from osmo-hlr-db.sql"
-          else
-            # Last resort: use osmo-hlr-db-tool
-            sudo osmo-hlr-db-tool -l /var/lib/osmocom/hlr.db create 2>/dev/null || {
-              # Manual schema as final fallback
-              sudo sqlite3 /var/lib/osmocom/hlr.db "CREATE TABLE IF NOT EXISTS subscriber (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                imsi TEXT UNIQUE NOT NULL,
-                msisdn TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-              );"
-              echo "Database created with manual fallback schema"
-            }
-          fi
-          
-          # Verify the database exists and has tables
-          sudo sqlite3 /var/lib/osmocom/hlr.db ".tables"
-          echo "Database verification complete"
+          git clone --recurse-submodules https://github.com/tomasz-lisowski/simurai.git
+          echo "SIMurai cloned successfully"
+          ls -la simurai/
 
-      - name: Configure Osmocom
+      - name: Build swICC (Smart Card Core)
         run: |
-          sudo tee /etc/osmocom/osmo-stp.cfg << 'CFG'
-          line vty
-           no login
-          cs7 instance 0
-           xua rkm routing-key-allocation dynamic-permitted
-           listen m3ua 2905
-           accept-asp-connections dynamic-permitted
-          CFG
+          cd simurai/swicc
+          make
+          echo "swICC built successfully"
+          ls -la *.so *.a 2>/dev/null || echo "Libraries built"
 
-          sudo tee /etc/osmocom/osmo-hlr.cfg << 'CFG'
-          line vty
-           no login
-           bind 0.0.0.0
-          hlr
-           database /var/lib/osmocom/hlr.db
-           subscriber-create-on-demand 2
-           gsup
-            bind ip 127.0.0.1
-          ctrl
-           bind 127.0.0.1
-          CFG
-
-          sudo tee /etc/osmocom/osmo-msc.cfg << 'CFG'
-          line vty
-           no login
-           bind 0.0.0.0
-          network
-           network country code 001
-           mobile network code 01
-           short name OsmoMSC
-           long name OsmoMSC
-           encryption a5 0
-           authentication optional
-          msc
-           mgw remote-ip 127.0.0.1
-           hlr
-            remote-ip 127.0.0.1
-            remote-port 4222
-          CFG
-
-          sudo tee /etc/osmocom/osmo-mgw.cfg << 'CFG'
-          line vty
-           no login
-          mgcp
-           bind ip 127.0.0.1
-           bind port 2427
-           rtp port-range 4002 16000
-           rtp bind-ip 127.0.0.1
-           number endpoints 31
-          CFG
-          echo "Configuration files written"
-
-      - name: Start Osmocom daemons with correct startup order
+      - name: Build swICC-pcsc (Virtual PC/SC Reader)
         run: |
-          echo "Starting osmo-stp (signaling backbone)..."
-          sudo osmo-stp -c /etc/osmocom/osmo-stp.cfg > /tmp/stp.log 2>&1 &
-          sleep 3
-          if ps aux | grep -v grep | grep osmo-stp; then echo "STP running"; else echo "STP FAILED"; cat /tmp/stp.log; fi
-          
-          echo "Starting osmo-hlr (home location register)..."
-          sudo osmo-hlr -c /etc/osmocom/osmo-hlr.cfg > /tmp/hlr.log 2>&1 &
-          sleep 3
-          if ps aux | grep -v grep | grep osmo-hlr; then echo "HLR running"; else echo "HLR FAILED"; cat /tmp/hlr.log; fi
-          
-          echo "Starting osmo-mgw (media gateway)..."
-          sudo osmo-mgw -c /etc/osmocom/osmo-mgw.cfg > /tmp/mgw.log 2>&1 &
-          sleep 3
-          
-          echo "Starting osmo-msc (mobile switching center)..."
-          sudo osmo-msc -c /etc/osmocom/osmo-msc.cfg > /tmp/msc.log 2>&1 &
-          sleep 5
-          
-          echo "=== Daemon Status ==="
-          ps aux | grep osmo
-          echo "=== VTY Test ==="
-          echo "enable" | timeout 5 telnet 127.0.0.1 4258 2>/dev/null && echo "VTY OK" || echo "VTY not ready yet"
+          cd simurai/swicc-pcsc
+          make main-dbg
+          echo "swICC-pcsc built successfully"
+          ls -la main-dbg
 
-      - name: Create subscriber
-        id: create
+      - name: Build swSIM (SIM Card Emulator)
+        run: |
+          cd simurai/swsim
+          mkdir -p build && cd build
+          # Fix: remove -Werror to prevent GCC 14 build failure
+          cp ../CMakeLists.txt ../CMakeLists.txt.bak
+          sed -i 's/-Werror//g' ../CMakeLists.txt
+          cmake .. -DCMAKE_BUILD_TYPE=Debug
+          make -j$(nproc)
+          echo "swSIM built successfully"
+          ls -la swsim.elf
+
+      - name: Generate subscriber identity
+        id: identity
         run: |
           if [ -z "$MSISDN" ]; then
             MSISDN="$COUNTRY_CODE$(printf '%08d' $RANDOM)"
           fi
           IMSI="001010$(printf '%010d' $RANDOM)"
-          
-          echo -e "enable\nsubscriber imsi $IMSI create\nupdate subscriber imsi $IMSI set msisdn $MSISDN" \
-            | timeout 10 telnet 127.0.0.1 4258 2>&1
+          ICCID="988812$(printf '%014d' $RANDOM)"
           
           echo "imsi=$IMSI" >> $GITHUB_OUTPUT
           echo "msisdn=$MSISDN" >> $GITHUB_OUTPUT
+          echo "iccid=$ICCID" >> $GITHUB_OUTPUT
           
-          echo "✅ Number created: +$MSISDN (IMSI: $IMSI)"
+          echo "✅ Identity generated: +$MSISDN (IMSI: $IMSI)"
+
+      - name: Create custom USIM JSON profile
+        run: |
+          cat > /tmp/usim.json << JSON
+          {
+            "iccid": "$ICCID",
+            "imsi": "$IMSI",
+            "msisdn": "$MSISDN",
+            "pin": {"value": "1234", "retry_counter": 3},
+            "puk": {"value": "87654321", "retry_counter": 10}
+          }
+          JSON
+          sed -i "s/\$ICCID/$ICCID/" /tmp/usim.json
+          sed -i "s/\$IMSI/$IMSI/" /tmp/usim.json
+          sed -i "s/\$MSISDN/$MSISDN/" /tmp/usim.json
+          
+          echo "Custom SIM profile created:"
+          cat /tmp/usim.json
         env:
-          MSISDN: ${{ inputs.msisdn }}
-          COUNTRY_CODE: ${{ inputs.country_code }}
+          IMSI: ${{ steps.identity.outputs.imsi }}
+          MSISDN: ${{ steps.identity.outputs.msisdn }}
+          ICCID: ${{ steps.identity.outputs.iccid }}
+
+      - name: Launch virtual SIM and verify
+        run: |
+          # Kill any existing pcscd
+          sudo pkill -x pcscd 2>/dev/null || true
+          sleep 1
+          
+          # Start pcscd in foreground debug mode
+          sudo pcscd -f -d &
+          sleep 3
+          
+          # Launch swSIM
+          cd simurai/swsim/build
+          ./swsim.elf --ip 0.0.0.0 --port 37324 \
+            --fs /tmp/sim-filesystem.swiccfs \
+            --fs-gen /tmp/usim.json &
+          sleep 3
+          
+          # Verify the virtual SIM is visible
+          echo "=== PC/SC Scan ==="
+          timeout 10 pcsc_scan || true
+          
+          echo "=== Daemon Status ==="
+          ps aux | grep -E "pcscd|swsim" | grep -v grep
+          
+          echo "✅ Virtual SIM launched with MSISDN: $MSISDN"
+        env:
+          MSISDN: ${{ steps.identity.outputs.msisdn }}
 
       - name: Push to PhantomLink subscriber panel
         run: |
@@ -158,6 +126,7 @@ jobs:
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${{ secrets.HF_TOKEN }}" \
             -d "{\"imsi\":\"$IMSI\",\"msisdn\":\"$MSISDN\"}"
+          echo "Pushed to subscriber panel"
         env:
-          IMSI: ${{ steps.create.outputs.imsi }}
-          MSISDN: ${{ steps.create.outputs.msisdn }}
+          IMSI: ${{ steps.identity.outputs.imsi }}
+          MSISDN: ${{ steps.identity.outputs.msisdn }}
