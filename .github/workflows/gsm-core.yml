@@ -26,45 +26,38 @@ jobs:
       - name: Clone SIMurai with all submodules
         run: |
           git clone --recurse-submodules https://github.com/tomasz-lisowski/simurai.git
-          echo "=== Verify swsim submodule ==="
-          ls -la simurai/swsim/
-          ls -la simurai/swsim/Makefile
 
       - name: Build swICC (Smart Card Core)
         run: |
           cd simurai/swicc
-          # Fix: remove -Werror for GCC 13 compatibility
           sed -i 's/-Werror//g' Makefile 2>/dev/null || true
           make
-          echo "swICC built"
 
       - name: Build swICC-pcsc (Virtual PC/SC Reader)
         run: |
           cd simurai/swicc-pcsc
-          # Fix: remove -Werror from top-level and embedded swicc
           sed -i 's/-Werror//g' Makefile
           sed -i 's/-Werror//g' lib/swicc/Makefile 2>/dev/null || true
           make main-dbg ARG="-DDEBUG_CLR"
           sudo make install
-          echo "swICC-pcsc built and installed"
 
-      - name: Build swSIM (SIM Card Emulator – uses Make, not CMake)
+      - name: Build swSIM (SIM Card Emulator)
         run: |
           cd simurai/swsim
-          # Fix: remove -Werror for GCC 13 compatibility
           sed -i 's/-Werror//g' Makefile 2>/dev/null || true
           make main-dbg
-          ls -la build/swsim.elf
-          echo "swSIM built"
+          ls -l build/swsim.elf
 
       - name: Generate subscriber identity
         id: identity
         run: |
+          # Generate a proper random 8‑digit suffix
+          RANDSUFF=$(shuf -i 10000000-99999999 -n 1)
           if [ -z "$MSISDN" ]; then
-            MSISDN="$COUNTRY_CODE$(printf '%08d' $RANDOM)"
+            MSISDN="$COUNTRY_CODE$RANDSUFF"
           fi
-          IMSI="001010$(printf '%010d' $RANDOM)"
-          ICCID="988812$(printf '%014d' $RANDOM)"
+          IMSI="001010$(shuf -i 1000000000-9999999999 -n 1)"
+          ICCID="988812$(shuf -i 10000000000000-99999999999999 -n 1)"
           
           echo "imsi=$IMSI" >> $GITHUB_OUTPUT
           echo "msisdn=$MSISDN" >> $GITHUB_OUTPUT
@@ -72,22 +65,17 @@ jobs:
           
           echo "✅ Identity: +$MSISDN (IMSI: $IMSI)"
 
-      - name: Create custom USIM JSON
+      - name: Create custom SIM profile
         run: |
-          cat > simurai/swsim/data/usim.json << JSON
-          {
-            "iccid": "$ICCID",
-            "imsi": "$IMSI",
-            "msisdn": "$MSISDN",
-            "pin": {"value": "1234", "retry_counter": 3},
-            "puk": {"value": "87654321", "retry_counter": 10}
-          }
-          JSON
-          sed -i "s/\$ICCID/$ICCID/" simurai/swsim/data/usim.json
-          sed -i "s/\$IMSI/$IMSI/" simurai/swsim/data/usim.json
-          sed -i "s/\$MSISDN/$MSISDN/" simurai/swsim/data/usim.json
-          echo "SIM profile:"
-          cat simurai/swsim/data/usim.json
+          cd simurai/swsim
+          cp data/usim.example.json data/usim.json 2>/dev/null || true
+          if [ ! -f data/usim.json ]; then
+            echo '{"iccid":"","imsi":"","msisdn":"","pin":{"value":"1234","retry_counter":3},"puk":{"value":"87654321","retry_counter":10}}' > data/usim.json
+          fi
+          sed -i "s|\"iccid\":\"[^\"]*\"|\"iccid\":\"$ICCID\"|" data/usim.json
+          sed -i "s|\"imsi\":\"[^\"]*\"|\"imsi\":\"$IMSI\"|" data/usim.json
+          sed -i "s|\"msisdn\":\"[^\"]*\"|\"msisdn\":\"$MSISDN\"|" data/usim.json
+          cat data/usim.json
         env:
           IMSI: ${{ steps.identity.outputs.imsi }}
           MSISDN: ${{ steps.identity.outputs.msisdn }}
@@ -95,37 +83,35 @@ jobs:
 
       - name: Launch virtual SIM and verify
         run: |
-          # Kill old pcscd
           sudo pkill -x pcscd 2>/dev/null || true
           sleep 1
-          
-          # Start pcscd in foreground debug mode
           sudo pcscd -f -d &
           sleep 3
           
-          # Launch swSIM (uses Make, binary at build/swsim.elf)
           cd simurai/swsim
           ./build/swsim.elf --ip 0.0.0.0 --port 37324 \
             --fs filesystem.swiccfs \
             --fs-gen ./data/usim.json &
           sleep 3
           
-          echo "=== PC/SC Scan ==="
-          timeout 10 pcsc_scan || true
-          
           echo "=== Process Status ==="
           ps aux | grep -E "pcscd|swsim" | grep -v grep || true
           
-          echo "✅ Virtual SIM launched"
+          # Run pcsc_scan with sudo to avoid permission errors
+          echo "=== PC/SC Scan ==="
+          sudo timeout 10 pcsc_scan || true
+          
+          echo "✅ Virtual SIM launched with MSISDN: $MSISDN"
         env:
           MSISDN: ${{ steps.identity.outputs.msisdn }}
 
-      - name: Push to subscriber panel
+      - name: Push to PhantomLink subscriber panel
         run: |
           curl -s -X POST https://oga1234-phantomlink-gsm.hf.space/api/subscriber/create \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${{ secrets.HF_TOKEN }}" \
             -d "{\"imsi\":\"$IMSI\",\"msisdn\":\"$MSISDN\"}"
+          echo "Pushed to subscriber panel"
         env:
           IMSI: ${{ steps.identity.outputs.imsi }}
           MSISDN: ${{ steps.identity.outputs.msisdn }}
