@@ -13,9 +13,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      # ============================================================
-      # PHASE 1: OSMOCON CORE NETWORK (HLR + MSC + STP + MGW)
-      # ============================================================
       - name: Install Osmocom core network (Ubuntu native packages)
         run: |
           sudo apt-get update
@@ -26,15 +23,12 @@ jobs:
       - name: Initialize HLR database
         run: |
           sudo mkdir -p /var/lib/osmocom /etc/osmocom
-          # Use osmo-hlr-db-tool – the documented, reliable method
           sudo osmo-hlr-db-tool -l /var/lib/osmocom/hlr.db create
           echo "HLR database created"
-          # Verify tables exist
           sqlite3 /var/lib/osmocom/hlr.db ".tables"
 
       - name: Configure Osmocom daemons
         run: |
-          # ── osmo-stp.cfg ──
           sudo tee /etc/osmocom/osmo-stp.cfg << 'CFG'
           line vty
            no login
@@ -44,7 +38,6 @@ jobs:
            accept-asp-connections dynamic-permitted
           CFG
 
-          # ── osmo-hlr.cfg ──
           sudo tee /etc/osmocom/osmo-hlr.cfg << 'CFG'
           line vty
            no login
@@ -58,7 +51,6 @@ jobs:
            bind 0.0.0.0
           CFG
 
-          # ── osmo-msc.cfg ──
           sudo tee /etc/osmocom/osmo-msc.cfg << 'CFG'
           line vty
            no login
@@ -77,7 +69,6 @@ jobs:
             remote-port 4222
           CFG
 
-          # ── osmo-mgw.cfg ──
           sudo tee /etc/osmocom/osmo-mgw.cfg << 'CFG'
           line vty
            no login
@@ -90,71 +81,56 @@ jobs:
           CFG
           echo "Configuration complete"
 
-      - name: Start Osmocom daemons (correct order: STP → HLR → MGW → MSC)
+      - name: Start Osmocom daemons
         run: |
-          # 1. STP (signaling backbone)
+          # 1. STP
           sudo osmo-stp -c /etc/osmocom/osmo-stp.cfg > /tmp/stp.log 2>&1 &
           sleep 2
-          if ps aux | grep -v grep | grep osmo-stp; then echo "✅ STP running"; else echo "❌ STP FAILED"; cat /tmp/stp.log; exit 1; fi
+          pgrep -x osmo-stp || { echo "STP failed to start"; cat /tmp/stp.log; exit 1; }
+          echo "STP running"
 
-          # 2. HLR (subscriber database)
+          # 2. HLR
           sudo osmo-hlr -c /etc/osmocom/osmo-hlr.cfg > /tmp/hlr.log 2>&1 &
           sleep 2
-          if ps aux | grep -v grep | grep osmo-hlr; then echo "✅ HLR running"; else echo "❌ HLR FAILED"; cat /tmp/hlr.log; exit 1; fi
+          pgrep -x osmo-hlr || { echo "HLR failed to start"; cat /tmp/hlr.log; exit 1; }
+          echo "HLR running"
 
-          # 3. MGW (media gateway)
+          # 3. MGW
           sudo osmo-mgw -c /etc/osmocom/osmo-mgw.cfg > /tmp/mgw.log 2>&1 &
           sleep 2
 
-          # 4. MSC (mobile switching center)
+          # 4. MSC
           sudo osmo-msc -c /etc/osmocom/osmo-msc.cfg > /tmp/msc.log 2>&1 &
           sleep 3
-          if ps aux | grep -v grep | grep osmo-msc; then echo "✅ MSC running"; else echo "❌ MSC FAILED"; cat /tmp/msc.log; exit 1; fi
+          pgrep -x osmo-msc || { echo "MSC failed to start"; cat /tmp/msc.log; exit 1; }
+          echo "MSC running"
 
-          echo "=== All daemons running ==="
+          echo "All daemons running"
           ps aux | grep osmo
 
-      # ============================================================
-      # PHASE 2: SUBSCRIBER CREATION VIA CTRL INTERFACE
-      # ============================================================
       - name: Generate subscriber identity
         id: identity
         run: |
           RANDSUFF=$(shuf -i 10000000-99999999 -n 1)
           MSISDN="234$RANDSUFF"
           IMSI="001010$(shuf -i 1000000000-9999999999 -n 1)"
-          
           echo "msisdn=$MSISDN" >> $GITHUB_OUTPUT
           echo "imsi=$IMSI" >> $GITHUB_OUTPUT
-          
-          echo "✅ Identity: +$MSISDN (IMSI: $IMSI)"
+          echo "Identity: +$MSISDN (IMSI: $IMSI)"
 
       - name: Create subscriber via CTRL interface
         run: |
-          # CTRL interface is "intended for programmatic use by external software"
-          # Port 4259 is the CTRL port (not VTY 4258)
-          
-          # Create subscriber
           echo "SET subscriber.create $IMSI" | nc -w 5 127.0.0.1 4259 || true
           sleep 1
-          
-          # Assign phone number
           echo "SET subscriber.by-imsi-$IMSI.msisdn $MSISDN" | nc -w 5 127.0.0.1 4259 || true
-          
           echo "Subscriber created via CTRL interface"
-          
-          # Also verify via VTY as backup
           echo -e "enable\nshow subscriber imsi $IMSI" | timeout 10 telnet 127.0.0.1 4258 2>/dev/null || true
         env:
           IMSI: ${{ steps.identity.outputs.imsi }}
           MSISDN: ${{ steps.identity.outputs.msisdn }}
 
-      # ============================================================
-      # SMS TEST: Send SMS via OsmoMSC built‑in SMSC
-      # ============================================================
       - name: Send test SMS via OsmoMSC
         run: |
-          # OsmoMSC VTY allows sending SMS directly
           echo -e "enable\nsms 1 $MSISDN test\n" | timeout 10 telnet 127.0.0.1 4258 2>/dev/null || true
           echo "Test SMS command sent to MSC"
         env:
@@ -162,21 +138,18 @@ jobs:
 
       - name: Output subscriber credentials
         run: |
-          echo "╔══════════════════════════════════════════════════════════╗"
-          echo "║           PHANTOMLINK GSM CORE — NUMBER CREATED           ║"
-          echo "╠══════════════════════════════════════════════════════════╣"
-          echo "║  Phone Number: +$MSISDN"
-          echo "║  IMSI:         $IMSI"
-          echo "║  Country:       Nigeria (+234)"
-          echo "║  Status:        Active on virtual GSM network"
-          echo "╚══════════════════════════════════════════════════════════╝"
+          echo "======================================================"
+          echo "  PHANTOMLINK GSM CORE - NUMBER CREATED"
+          echo "======================================================"
+          echo "  Phone Number: +$MSISDN"
+          echo "  IMSI:         $IMSI"
+          echo "  Country:       Nigeria (+234)"
+          echo "  Status:        Active on virtual GSM network"
+          echo "======================================================"
         env:
           IMSI: ${{ steps.identity.outputs.imsi }}
           MSISDN: ${{ steps.identity.outputs.msisdn }}
 
-      # ============================================================
-      # PUSH TO SUBSCRIBER PANEL
-      # ============================================================
       - name: Push to PhantomLink subscriber panel
         run: |
           curl -s -X POST https://oga1234-phantomlink-gsm.hf.space/api/subscriber/create \
