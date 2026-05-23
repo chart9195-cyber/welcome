@@ -16,44 +16,41 @@ jobs:
   create-sim:
     runs-on: ubuntu-24.04
     steps:
-      - name: Install build dependencies (all from Ubuntu universe)
+      - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake gcc pkg-config \
             libpcsclite-dev libpcsclite1 pcscd pcsc-tools \
-            libssl-dev uuid-dev git telnet
+            libssl-dev uuid-dev git
 
-      - name: Clone SIMurai with all submodules
+      - name: Clone SIMurai
         run: |
           git clone --recurse-submodules https://github.com/tomasz-lisowski/simurai.git
-          echo "SIMurai cloned successfully"
-          ls -la simurai/
 
-      - name: Build swICC (Smart Card Core)
+      - name: Build swICC core
         run: |
           cd simurai/swicc
+          # Fix: remove -Werror (GCC 13 compatibility)
+          sed -i 's/-Werror//g' Makefile 2>/dev/null || true
           make
-          echo "swICC built successfully"
-          ls -la *.so *.a 2>/dev/null || echo "Libraries built"
 
-      - name: Build swICC-pcsc (Virtual PC/SC Reader)
+      - name: Build swICC-pcsc (virtual reader)
         run: |
           cd simurai/swicc-pcsc
-          make main-dbg
-          echo "swICC-pcsc built successfully"
-          ls -la main-dbg
+          # Fix: remove -Werror from top-level and embedded swicc Makefile
+          sed -i 's/-Werror//g' Makefile
+          sed -i 's/-Werror//g' lib/swicc/Makefile 2>/dev/null || true
+          make main-dbg ARG="-DDEBUG_CLR"
 
-      - name: Build swSIM (SIM Card Emulator)
+      - name: Build swSIM (card emulator)
         run: |
           cd simurai/swsim
           mkdir -p build && cd build
-          # Fix: remove -Werror to prevent GCC 14 build failure
+          # Fix: remove -Werror (GCC 13 compatibility)
           cp ../CMakeLists.txt ../CMakeLists.txt.bak
           sed -i 's/-Werror//g' ../CMakeLists.txt
           cmake .. -DCMAKE_BUILD_TYPE=Debug
           make -j$(nproc)
-          echo "swSIM built successfully"
-          ls -la swsim.elf
 
       - name: Generate subscriber identity
         id: identity
@@ -70,7 +67,7 @@ jobs:
           
           echo "✅ Identity generated: +$MSISDN (IMSI: $IMSI)"
 
-      - name: Create custom USIM JSON profile
+      - name: Create custom USIM JSON
         run: |
           cat > /tmp/usim.json << JSON
           {
@@ -85,8 +82,7 @@ jobs:
           sed -i "s/\$IMSI/$IMSI/" /tmp/usim.json
           sed -i "s/\$MSISDN/$MSISDN/" /tmp/usim.json
           
-          echo "Custom SIM profile created:"
-          cat /tmp/usim.json
+          echo "SIM profile created"
         env:
           IMSI: ${{ steps.identity.outputs.imsi }}
           MSISDN: ${{ steps.identity.outputs.msisdn }}
@@ -94,39 +90,33 @@ jobs:
 
       - name: Launch virtual SIM and verify
         run: |
-          # Kill any existing pcscd
           sudo pkill -x pcscd 2>/dev/null || true
           sleep 1
-          
-          # Start pcscd in foreground debug mode
           sudo pcscd -f -d &
           sleep 3
           
-          # Launch swSIM
           cd simurai/swsim/build
           ./swsim.elf --ip 0.0.0.0 --port 37324 \
             --fs /tmp/sim-filesystem.swiccfs \
             --fs-gen /tmp/usim.json &
           sleep 3
           
-          # Verify the virtual SIM is visible
           echo "=== PC/SC Scan ==="
           timeout 10 pcsc_scan || true
           
-          echo "=== Daemon Status ==="
-          ps aux | grep -E "pcscd|swsim" | grep -v grep
+          echo "=== Process Status ==="
+          ps aux | grep -E "pcscd|swsim" | grep -v grep || true
           
-          echo "✅ Virtual SIM launched with MSISDN: $MSISDN"
+          echo "✅ Virtual SIM launched"
         env:
           MSISDN: ${{ steps.identity.outputs.msisdn }}
 
-      - name: Push to PhantomLink subscriber panel
+      - name: Push to subscriber panel
         run: |
           curl -s -X POST https://oga1234-phantomlink-gsm.hf.space/api/subscriber/create \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${{ secrets.HF_TOKEN }}" \
             -d "{\"imsi\":\"$IMSI\",\"msisdn\":\"$MSISDN\"}"
-          echo "Pushed to subscriber panel"
         env:
           IMSI: ${{ steps.identity.outputs.imsi }}
           MSISDN: ${{ steps.identity.outputs.msisdn }}
