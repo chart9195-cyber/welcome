@@ -47,6 +47,19 @@ jobs:
           sudo make install
           echo "libosmo-gprs installed to /opt/osmocom"
 
+      - name: Build osmo-bts from source
+        run: |
+          export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
+          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
+          git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-bts
+          cd osmo-bts
+          autoreconf -fi
+          ./configure --prefix=/opt/osmocom --enable-trx
+          make -j$(nproc)
+          sudo make install
+          echo "osmo-bts-trx installed to /opt/osmocom"
+          ls /opt/osmocom/bin/osmo-bts-trx
+
       - name: Initialize HLR database
         run: |
           sudo mkdir -p /var/lib/osmocom /etc/osmocom
@@ -142,10 +155,24 @@ jobs:
           echo "imsi=$IMSI" >> $GITHUB_OUTPUT
           echo "Identity: +$MSISDN (IMSI: $IMSI)"
 
-      - name: Launch mobile with MINIMAL known-working config
+      - name: Launch FakeTRX (virtual Um interface)
+        run: |
+          cd osmocom-bb/src/target/trx_toolkit
+          python3 fake_trx.py > /tmp/faketrx.log 2>&1 &
+          sleep 2
+          echo "FakeTRX launched"
+
+      - name: Launch osmo-bts-trx (virtual base station)
+        run: |
+          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
+          sudo /opt/osmocom/bin/osmo-bts-trx -c /tmp/osmo-bts.cfg > /tmp/bts.log 2>&1 &
+          sleep 2
+          echo "BTS launched"
+          pgrep -x osmo-bts-trx && echo "BTS running" || echo "BTS not running"
+
+      - name: Launch mobile with minimal config
         run: |
           mkdir -p /tmp/mobile
-          # Start with absolute minimal config that always parses
           cat > /tmp/mobile/mobile.cfg << 'CFG'
           !
           line vty
@@ -156,8 +183,6 @@ jobs:
            sap-socket /tmp/osmocom_sap
           !
           CFG
-          echo "Minimal config created"
-          
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           cd osmocom-bb/src/host/layer23/src/mobile
           ./mobile -c /tmp/mobile/mobile.cfg > /tmp/mobile.log 2>&1 &
@@ -166,7 +191,6 @@ jobs:
 
       - name: Configure SIM and network via VTY at runtime
         run: |
-          # Use VTY to set test SIM parameters at runtime (always works)
           echo -e "enable\nconfigure terminal\nms 1\nsim test\ntest-sim imsi $IMSI ki comp128 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\nnetwork-selection-mode auto\nrplmn 001 01\nexit\nno shutdown" \
             | timeout 10 telnet 127.0.0.1 4247 2>/dev/null || true
           echo "VTY runtime configuration attempted"
@@ -182,18 +206,11 @@ jobs:
           IMSI: ${{ steps.identity.outputs.imsi }}
           MSISDN: ${{ steps.identity.outputs.msisdn }}
 
-      - name: Launch FakeTRX (virtual Um interface)
+      - name: Send test SMS via OsmoMSC VTY (port 4254)
         run: |
-          cd osmocom-bb/src/target/trx_toolkit
-          python3 fake_trx.py > /tmp/faketrx.log 2>&1 &
-          sleep 2
-          echo "FakeTRX launched"
-
-      - name: Send test SMS via OsmoMSC
-        run: |
-          sleep 3
-          echo -e "enable\nsms 1 $MSISDN test\n" | timeout 10 telnet 127.0.0.1 4258 2>/dev/null || true
-          echo "Test SMS sent"
+          sleep 5
+          echo -e "enable\nsms 1 $MSISDN test\n" | timeout 10 telnet 127.0.0.1 4254 2>/dev/null || true
+          echo "Test SMS sent to MSC"
           echo "=== Mobile log (last 20 lines) ==="
           tail -20 /tmp/mobile.log || true
         env:
