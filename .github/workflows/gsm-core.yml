@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Install Osmocom from Ubuntu universe (no dependency conflicts)
+      - name: Install Osmocom from Ubuntu universe
         run: |
           sudo apt-get update
           sudo apt-get install -y osmo-hlr osmo-msc osmo-stp osmo-mgw telnet netcat-openbsd
@@ -24,10 +24,11 @@ jobs:
           sudo mkdir -p /var/lib/osmocom /etc/osmocom
           sudo osmo-hlr-db-tool -l /var/lib/osmocom/hlr.db create
           sudo chmod 666 /var/lib/osmocom/hlr.db
-          echo "HLR database created"
+          echo "HLR database created and permissions fixed"
 
-      - name: Configure Osmocom daemons (minimal STP config for Ubuntu v1.6.0)
+      - name: Configure Osmocom daemons (no unsupported commands)
         run: |
+          # ── osmo-stp.cfg (Ubuntu 24.04 native osmo-stp) ──
           sudo tee /etc/osmocom/osmo-stp.cfg << 'CFG'
           line vty
            no login
@@ -37,19 +38,20 @@ jobs:
             local-ip 127.0.0.1
           CFG
 
+          # ── osmo-hlr.cfg (no subscriber-create-on-demand — not supported by Ubuntu 24.04 package) ──
           sudo tee /etc/osmocom/osmo-hlr.cfg << 'CFG'
           line vty
            no login
            bind 0.0.0.0
           hlr
            database /var/lib/osmocom/hlr.db
-           subscriber-create-on-demand 2
            gsup
             bind ip 127.0.0.1
           ctrl
            bind 0.0.0.0
           CFG
 
+          # ── osmo-msc.cfg ──
           sudo tee /etc/osmocom/osmo-msc.cfg << 'CFG'
           line vty
            no login
@@ -68,6 +70,7 @@ jobs:
             remote-port 4222
           CFG
 
+          # ── osmo-mgw.cfg ──
           sudo tee /etc/osmocom/osmo-mgw.cfg << 'CFG'
           line vty
            no login
