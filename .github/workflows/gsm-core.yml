@@ -21,7 +21,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y osmo-hlr osmo-msc osmo-stp osmo-mgw telnet netcat-openbsd \
             autoconf automake libtool pkg-config libosmocore-dev libtalloc-dev libpcsclite-dev \
-            libfftw3-dev osmo-bts-trx
+            libfftw3-dev
           echo "All packages installed"
 
       - name: Initialize HLR database
@@ -103,7 +103,6 @@ jobs:
       - name: Build OsmocomBB host programs from src/host/layer23
         run: |
           cd osmocom-bb/src/host/layer23
-          # configure.ac IS here (not at repo root)
           ls configure.ac
           autoreconf -fi
           ./configure
