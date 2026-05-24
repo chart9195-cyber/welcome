@@ -21,11 +21,12 @@ jobs:
             autoconf automake git pkg-config make gcc \
             libgnutls28-dev libusb-1.0.0-dev libmnl-dev liburing-dev \
             libpcsclite-dev libortp-dev \
+            libosmo-mgcp-client-dev \
             osmo-hlr osmo-msc osmo-stp osmo-mgw \
             telnet netcat-openbsd
-          echo "All packages installed"
+          echo "All packages installed (including libosmo-mgcp-client-dev)"
 
-      - name: Build all Osmocom libraries from master into isolated prefix
+      - name: Build all Osmocom libraries into isolated prefix
         run: |
           export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
@@ -40,12 +41,12 @@ jobs:
           cd libosmo-netif && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
           echo "libosmo-netif done"
 
-          # 3. libosmo-abis (tag 1.4.0 — compatible with osmo-bsc 1.9.0)
+          # 3. libosmo-abis (1.4.0 — exports ipaccess_fd_cb)
           git clone https://gitea.osmocom.org/osmocom/libosmo-abis
           cd libosmo-abis && git checkout 1.4.0 && autoreconf -fi && ./configure --prefix=/opt/osmocom --disable-dahdi && make -j$(nproc) && sudo make install && cd ..
-          echo "libosmo-abis (1.4.0) done"
+          echo "libosmo-abis done"
 
-          # 4. libosmo-sccp (master provides libosmo-sigtran 1.9.0)
+          # 4. libosmo-sccp (master — provides libosmo-sigtran 1.9.0)
           git clone https://gitea.osmocom.org/osmocom/libosmo-sccp
           cd libosmo-sccp && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
           echo "libosmo-sccp done"
@@ -55,17 +56,21 @@ jobs:
           cd libosmo-gprs && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
           echo "libosmo-gprs done"
 
-          # 6. osmo-bts (TRX only, CRITICAL: disable in-tree osmo-bsc build)
+          # 6. osmo-bts (TRX only — NEUTRALIZE THE TROJAN HORSE)
           git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-bts
-          cd osmo-bts && autoreconf -fi && ./configure --prefix=/opt/osmocom --enable-trx --disable-dahdi --disable-ortp --disable-sysmbts --disable-osmo-bsc && make -j$(nproc) && sudo make install && cd ..
+          cd osmo-bts
+          # Kill shot: prevent osmo-bsc in-tree build by removing the dependency
+          rm -rf osmo-bsc
+          sed -i '/osmo-bsc/d' configure.ac
+          sed -i '/OSMO_BSC/d' configure.ac
+          autoreconf -fi
+          ./configure --prefix=/opt/osmocom --enable-trx --disable-dahdi --disable-ortp --disable-sysmbts
+          make -j$(nproc)
+          sudo make install
+          cd ..
           echo "osmo-bts done"
 
-          # 7. osmo-mgw (tag 1.10.0 — provides libosmo-mgcp-client >= 1.9.0)
-          git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-mgw
-          cd osmo-mgw && git checkout 1.10.0 && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
-          echo "osmo-mgw (libosmo-mgcp-client) done"
-
-          # 8. osmo-bsc (tag 1.9.0 — matches libosmo-sigtran 1.9.0 & libosmo-abis 1.4.0)
+          # 7. osmo-bsc (1.9.0 — all dependencies met)
           git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-bsc
           cd osmo-bsc && git checkout 1.9.0 && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
           echo "osmo-bsc done"
