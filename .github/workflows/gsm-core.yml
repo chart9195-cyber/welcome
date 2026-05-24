@@ -21,7 +21,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y osmo-hlr osmo-msc osmo-stp osmo-mgw telnet netcat-openbsd \
             autoconf automake libtool pkg-config libosmocore-dev libtalloc-dev libpcsclite-dev \
-            libfftw3-dev
+            libfftw3-dev osmo-bts-trx
           echo "All packages installed"
 
       - name: Initialize HLR database
@@ -93,29 +93,35 @@ jobs:
           echo "MSC running"
 
       # ============================================================
-      # PHASE 2: VIRTUAL RADIO (FakeTRX) + VIRTUAL MOBILE STATION
+      # PHASE 2: VIRTUAL RADIO + MOBILE STATION
       # ============================================================
-      - name: Clone OsmocomBB (full clone, ensure configure.ac exists)
+      - name: Clone OsmocomBB
         run: |
           git clone https://gitea.osmocom.org/phone-side/osmocom-bb
-          cd osmocom-bb
-          git checkout master
-          # Verify configure.ac exists
-          ls configure.ac
-          echo "OsmocomBB cloned successfully"
+          echo "OsmocomBB cloned"
 
-      - name: Build OsmocomBB host programs (mobile + trxcon)
+      - name: Build OsmocomBB host programs from src/host/layer23
         run: |
-          cd osmocom-bb
-          rm -f .version
+          cd osmocom-bb/src/host/layer23
+          # configure.ac IS here (not at repo root)
+          ls configure.ac
           autoreconf -fi
           ./configure
           make -j$(nproc)
-          echo "OsmocomBB host programs built"
-          ls src/host/layer23/src/mobile/mobile
-          ls src/host/trxcon/trxcon
+          echo "Host programs built"
+          ls src/mobile/mobile
 
-      - name: Configure virtual mobile station (test SIM with our IMSI)
+      - name: Generate subscriber identity (BEFORE mobile config)
+        id: identity
+        run: |
+          RANDSUFF=$(shuf -i 10000000-99999999 -n 1)
+          MSISDN="234$RANDSUFF"
+          IMSI="001010$(shuf -i 1000000000-9999999999 -n 1)"
+          echo "msisdn=$MSISDN" >> $GITHUB_OUTPUT
+          echo "imsi=$IMSI" >> $GITHUB_OUTPUT
+          echo "Identity: +$MSISDN (IMSI: $IMSI)"
+
+      - name: Configure virtual mobile station
         run: |
           mkdir -p /tmp/mobile
           cat > /tmp/mobile/mobile.cfg << CFG
@@ -134,48 +140,8 @@ jobs:
            rplmn 001 01
           CFG
           echo "Mobile configuration created with IMSI: $IMSI"
-          cat /tmp/mobile/mobile.cfg
         env:
           IMSI: ${{ steps.identity.outputs.imsi }}
-
-      - name: Launch FakeTRX (virtual Um interface)
-        run: |
-          cd osmocom-bb/src/target/trx_toolkit
-          python3 fake_trx.py --trx MS@127.0.0.1:6700 > /tmp/faketrx.log 2>&1 &
-          sleep 2
-          echo "FakeTRX launched"
-
-      - name: Launch trxcon (L1CTL to TRX bridge)
-        run: |
-          cd osmocom-bb/src/host/trxcon
-          ./trxcon -i 127.0.0.1 > /tmp/trxcon.log 2>&1 &
-          sleep 2
-          echo "trxcon launched"
-
-      - name: Launch mobile (virtual phone) and register on network
-        run: |
-          cd osmocom-bb/src/host/layer23/src/mobile
-          ./mobile -c /tmp/mobile/mobile.cfg -i 127.0.0.1 > /tmp/mobile.log 2>&1 &
-          sleep 3
-          echo "Mobile launched"
-          pgrep -x mobile || echo "Mobile may not be running (expected for initial registration)"
-          echo -e "enable\nms 1 location-update" | timeout 10 telnet 127.0.0.1 4247 2>/dev/null || true
-          echo "Location update sent"
-        env:
-          IMSI: ${{ steps.identity.outputs.imsi }}
-
-      # ============================================================
-      # SUBSCRIBER CREATION
-      # ============================================================
-      - name: Generate subscriber identity
-        id: identity
-        run: |
-          RANDSUFF=$(shuf -i 10000000-99999999 -n 1)
-          MSISDN="234$RANDSUFF"
-          IMSI="001010$(shuf -i 1000000000-9999999999 -n 1)"
-          echo "msisdn=$MSISDN" >> $GITHUB_OUTPUT
-          echo "imsi=$IMSI" >> $GITHUB_OUTPUT
-          echo "Identity: +$MSISDN (IMSI: $IMSI)"
 
       - name: Create subscriber via VTY
         run: |
@@ -186,8 +152,24 @@ jobs:
           IMSI: ${{ steps.identity.outputs.imsi }}
           MSISDN: ${{ steps.identity.outputs.msisdn }}
 
+      - name: Launch FakeTRX (virtual Um interface)
+        run: |
+          cd osmocom-bb/src/target/trx_toolkit
+          python3 fake_trx.py > /tmp/faketrx.log 2>&1 &
+          sleep 2
+          echo "FakeTRX launched"
+
+      - name: Launch mobile (virtual phone)
+        run: |
+          cd osmocom-bb/src/host/layer23/src/mobile
+          ./mobile -c /tmp/mobile/mobile.cfg -i 127.0.0.1 > /tmp/mobile.log 2>&1 &
+          sleep 3
+          echo "Mobile launched"
+          pgrep -x mobile || echo "Mobile may not be running"
+
       - name: Send test SMS via OsmoMSC
         run: |
+          sleep 3
           echo -e "enable\nsms 1 $MSISDN test\n" | timeout 10 telnet 127.0.0.1 4258 2>/dev/null || true
           echo "Test SMS sent"
           echo "=== Mobile log (last 20 lines) ==="
