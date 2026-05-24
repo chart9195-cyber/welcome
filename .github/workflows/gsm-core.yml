@@ -142,7 +142,7 @@ jobs:
           echo "imsi=$IMSI" >> $GITHUB_OUTPUT
           echo "Identity: +$MSISDN (IMSI: $IMSI)"
 
-      - name: Configure virtual mobile station (corrected syntax)
+      - name: Configure virtual mobile station (VERIFIED SYNTAX)
         run: |
           mkdir -p /tmp/mobile
           cat > /tmp/mobile/mobile.cfg << CFG
@@ -152,11 +152,11 @@ jobs:
           !
           ms 1
            layer2-socket /tmp/osmocom_l2
-           sim none
-           test-sim imsi $IMSI
-           ki comp128 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+           sim test
+           test-sim imsi $IMSI ki comp128 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
            no barred-access
            rplmn 001 01
+          !
           CFG
           echo "Mobile configuration created with IMSI: $IMSI"
           cat /tmp/mobile/mobile.cfg
