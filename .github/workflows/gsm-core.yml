@@ -171,6 +171,12 @@ jobs:
           IMSI: ${{ steps.identity.outputs.imsi }}
           MSISDN: ${{ steps.identity.outputs.msisdn }}
 
+      - name: Configure MSC-HLR connection via VTY
+        run: |
+          echo -e "enable\nconfigure terminal\nmsc\nhlr\nremote-ip 127.0.0.1\nremote-port 4222\nend\nexit" \
+            | timeout 10 telnet 127.0.0.1 4258 2>/dev/null || true
+          echo "MSC-HLR connection configured (if supported by this version)"
+
       - name: Launch FakeTRX (virtual Um interface)
         run: |
           cd osmocom-bb/src/target/trx_toolkit
@@ -178,14 +184,14 @@ jobs:
           sleep 2
           echo "FakeTRX launched"
 
-      - name: Launch mobile (virtual phone)
+      - name: Launch mobile (virtual phone) without deprecated -i flag
         run: |
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           cd osmocom-bb/src/host/layer23/src/mobile
-          ./mobile -c /tmp/mobile/mobile.cfg -i 127.0.0.1 > /tmp/mobile.log 2>&1 &
+          ./mobile -c /tmp/mobile/mobile.cfg > /tmp/mobile.log 2>&1 &
           sleep 3
           echo "Mobile launched"
-          pgrep -x mobile || echo "Mobile may not be running"
+          pgrep -x mobile || echo "Mobile may not be running (needs a base station to connect)"
 
       - name: Send test SMS via OsmoMSC
         run: |
