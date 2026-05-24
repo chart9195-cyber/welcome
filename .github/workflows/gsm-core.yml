@@ -16,15 +16,16 @@ jobs:
       # ============================================================
       # PHASE 1: OSMOCON CORE NETWORK
       # ============================================================
-      - name: Install Osmocom core network
+      - name: Install all required packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y osmo-hlr osmo-msc osmo-stp osmo-mgw telnet netcat-openbsd \
+          sudo apt-get install -y \
+            osmo-hlr osmo-msc osmo-stp osmo-mgw telnet netcat-openbsd \
             autoconf automake libtool pkg-config libtalloc-dev libsctp-dev \
-            libfftw3-dev libpcsclite-dev gcc make git
+            libfftw3-dev libpcsclite-dev liburing-dev gcc make git libgnutls28-dev
           echo "All packages installed"
 
-      - name: Build libosmocore from source (provides libosmoisdn)
+      - name: Build libosmocore from source
         run: |
           git clone https://gitea.osmocom.org/osmocom/libosmocore
           cd libosmocore
