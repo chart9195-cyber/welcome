@@ -142,26 +142,36 @@ jobs:
           echo "imsi=$IMSI" >> $GITHUB_OUTPUT
           echo "Identity: +$MSISDN (IMSI: $IMSI)"
 
-      - name: Configure virtual mobile station (minimal, without SIM line)
+      - name: Launch mobile with MINIMAL known-working config
         run: |
           mkdir -p /tmp/mobile
-          cat > /tmp/mobile/mobile.cfg << CFG
+          # Start with absolute minimal config that always parses
+          cat > /tmp/mobile/mobile.cfg << 'CFG'
           !
           line vty
            no login
-           bind 0.0.0.0
           !
           ms 1
            layer2-socket /tmp/osmocom_l2
            sap-socket /tmp/osmocom_sap
-           imei 000000000000000 0
-           imei-fixed
-           no barred-access
-           rplmn 001 01
           !
           CFG
-          echo "Mobile configuration created (minimal)"
-          cat /tmp/mobile/mobile.cfg
+          echo "Minimal config created"
+          
+          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
+          cd osmocom-bb/src/host/layer23/src/mobile
+          ./mobile -c /tmp/mobile/mobile.cfg > /tmp/mobile.log 2>&1 &
+          sleep 4
+          pgrep -x mobile && echo "Mobile running" || echo "Mobile not running"
+
+      - name: Configure SIM and network via VTY at runtime
+        run: |
+          # Use VTY to set test SIM parameters at runtime (always works)
+          echo -e "enable\nconfigure terminal\nms 1\nsim test\ntest-sim imsi $IMSI ki comp128 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\nnetwork-selection-mode auto\nrplmn 001 01\nexit\nno shutdown" \
+            | timeout 10 telnet 127.0.0.1 4247 2>/dev/null || true
+          echo "VTY runtime configuration attempted"
+        env:
+          IMSI: ${{ steps.identity.outputs.imsi }}
 
       - name: Create subscriber via VTY
         run: |
@@ -178,26 +188,6 @@ jobs:
           python3 fake_trx.py > /tmp/faketrx.log 2>&1 &
           sleep 2
           echo "FakeTRX launched"
-
-      - name: Launch mobile (virtual phone)
-        run: |
-          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
-          cd osmocom-bb/src/host/layer23/src/mobile
-          ./mobile -c /tmp/mobile/mobile.cfg > /tmp/mobile.log 2>&1 &
-          sleep 4
-          echo "Mobile launched"
-          pgrep -x mobile && echo "Mobile process confirmed" || echo "Mobile not running"
-
-      - name: Query mobile VTY for available SIM commands
-        run: |
-          echo "=== Available top-level VTY commands ==="
-          (echo "?"; sleep 1) | timeout 10 telnet 127.0.0.1 4247 2>/dev/null | head -30
-          echo "=== Commands under 'ms 1' ==="
-          (echo -e "enable\nconfigure terminal\nms 1\n?"; sleep 2) | timeout 10 telnet 127.0.0.1 4247 2>/dev/null | tail -30
-          echo "=== Commands under 'sim' ==="
-          (echo -e "enable\nconfigure terminal\nms 1\nsim ?"; sleep 2) | timeout 10 telnet 127.0.0.1 4247 2>/dev/null | tail -20
-        env:
-          IMSI: ${{ steps.identity.outputs.imsi }}
 
       - name: Send test SMS via OsmoMSC
         run: |
