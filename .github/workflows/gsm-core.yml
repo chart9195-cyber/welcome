@@ -40,7 +40,7 @@ jobs:
           cd libosmo-netif && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
           echo "libosmo-netif done"
 
-          # 3. libosmo-abis (tag 1.4.0 — still exports ipaccess_fd_cb)
+          # 3. libosmo-abis (tag 1.4.0 — compatible with osmo-bsc 1.9.0)
           git clone https://gitea.osmocom.org/osmocom/libosmo-abis
           cd libosmo-abis && git checkout 1.4.0 && autoreconf -fi && ./configure --prefix=/opt/osmocom --disable-dahdi && make -j$(nproc) && sudo make install && cd ..
           echo "libosmo-abis (1.4.0) done"
@@ -55,12 +55,12 @@ jobs:
           cd libosmo-gprs && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
           echo "libosmo-gprs done"
 
-          # 6. osmo-bts (TRX only)
+          # 6. osmo-bts (TRX only, CRITICAL: disable in-tree osmo-bsc build)
           git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-bts
-          cd osmo-bts && autoreconf -fi && ./configure --prefix=/opt/osmocom --enable-trx --disable-dahdi --disable-ortp --disable-sysmbts && make -j$(nproc) && sudo make install && cd ..
+          cd osmo-bts && autoreconf -fi && ./configure --prefix=/opt/osmocom --enable-trx --disable-dahdi --disable-ortp --disable-sysmbts --disable-osmo-bsc && make -j$(nproc) && sudo make install && cd ..
           echo "osmo-bts done"
 
-          # 7. osmo-mgw (tag 1.10.0 — provides libosmo-mgcp-client >= 1.10.0)
+          # 7. osmo-mgw (tag 1.10.0 — provides libosmo-mgcp-client >= 1.9.0)
           git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-mgw
           cd osmo-mgw && git checkout 1.10.0 && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
           echo "osmo-mgw (libosmo-mgcp-client) done"
