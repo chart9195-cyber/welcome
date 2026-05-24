@@ -13,10 +13,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - name: Install ALL build dependencies (official Osmocom wiki list)
+      - name: Install all required packages
         run: |
           sudo apt-get update
-          # Complete dependency list from https://projects.osmocom.org/projects/libosmocore/wiki/Libosmocore
           sudo apt-get install -y \
             build-essential libtool libtalloc-dev libsctp-dev shtool \
             autoconf automake git pkg-config make gcc \
@@ -26,16 +25,17 @@ jobs:
             telnet netcat-openbsd
           echo "All packages installed"
 
-      - name: Build libosmocore from source
+      - name: Build libosmocore into isolated prefix
         run: |
           git clone https://gitea.osmocom.org/osmocom/libosmocore
           cd libosmocore
           autoreconf -fi
-          ./configure
+          ./configure --prefix=/opt/osmocom
           make -j$(nproc)
           sudo make install
+          echo "/opt/osmocom/lib" | sudo tee /etc/ld.so.conf.d/osmocom.conf
           sudo ldconfig
-          echo "libosmocore built and installed"
+          echo "libosmocore built and installed to /opt/osmocom"
 
       - name: Initialize HLR database
         run: |
@@ -110,8 +110,10 @@ jobs:
           git clone https://gitea.osmocom.org/phone-side/osmocom-bb
           echo "OsmocomBB cloned"
 
-      - name: Build OsmocomBB host programs from src/host/layer23
+      - name: Build OsmocomBB host programs against custom libosmocore
         run: |
+          export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
+          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           cd osmocom-bb/src/host/layer23
           ls configure.ac
           autoreconf -fi
@@ -168,6 +170,7 @@ jobs:
 
       - name: Launch mobile (virtual phone)
         run: |
+          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           cd osmocom-bb/src/host/layer23/src/mobile
           ./mobile -c /tmp/mobile/mobile.cfg -i 127.0.0.1 > /tmp/mobile.log 2>&1 &
           sleep 3
