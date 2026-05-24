@@ -142,28 +142,26 @@ jobs:
           echo "imsi=$IMSI" >> $GITHUB_OUTPUT
           echo "Identity: +$MSISDN (IMSI: $IMSI)"
 
-      - name: Configure virtual mobile station (Jenkins CI VERIFIED syntax)
+      - name: Configure virtual mobile station (minimal, without SIM line)
         run: |
           mkdir -p /tmp/mobile
           cat > /tmp/mobile/mobile.cfg << CFG
           !
           line vty
            no login
+           bind 0.0.0.0
           !
           ms 1
            layer2-socket /tmp/osmocom_l2
            sap-socket /tmp/osmocom_sap
            imei 000000000000000 0
            imei-fixed
-           sim test test-sim imsi $IMSI ki comp128 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
            no barred-access
            rplmn 001 01
           !
           CFG
-          echo "Mobile configuration created with IMSI: $IMSI"
+          echo "Mobile configuration created (minimal)"
           cat /tmp/mobile/mobile.cfg
-        env:
-          IMSI: ${{ steps.identity.outputs.imsi }}
 
       - name: Create subscriber via VTY
         run: |
@@ -186,9 +184,20 @@ jobs:
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           cd osmocom-bb/src/host/layer23/src/mobile
           ./mobile -c /tmp/mobile/mobile.cfg > /tmp/mobile.log 2>&1 &
-          sleep 3
+          sleep 4
           echo "Mobile launched"
-          pgrep -x mobile && echo "Mobile process confirmed" || echo "Mobile may need a base station to fully register"
+          pgrep -x mobile && echo "Mobile process confirmed" || echo "Mobile not running"
+
+      - name: Query mobile VTY for available SIM commands
+        run: |
+          echo "=== Available top-level VTY commands ==="
+          (echo "?"; sleep 1) | timeout 10 telnet 127.0.0.1 4247 2>/dev/null | head -30
+          echo "=== Commands under 'ms 1' ==="
+          (echo -e "enable\nconfigure terminal\nms 1\n?"; sleep 2) | timeout 10 telnet 127.0.0.1 4247 2>/dev/null | tail -30
+          echo "=== Commands under 'sim' ==="
+          (echo -e "enable\nconfigure terminal\nms 1\nsim ?"; sleep 2) | timeout 10 telnet 127.0.0.1 4247 2>/dev/null | tail -20
+        env:
+          IMSI: ${{ steps.identity.outputs.imsi }}
 
       - name: Send test SMS via OsmoMSC
         run: |
