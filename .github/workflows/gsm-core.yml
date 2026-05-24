@@ -142,7 +142,7 @@ jobs:
           echo "imsi=$IMSI" >> $GITHUB_OUTPUT
           echo "Identity: +$MSISDN (IMSI: $IMSI)"
 
-      - name: Configure virtual mobile station
+      - name: Configure virtual mobile station (fixed: sim none + test-sim)
         run: |
           mkdir -p /tmp/mobile
           cat > /tmp/mobile/mobile.cfg << CFG
@@ -153,7 +153,7 @@ jobs:
           !
           ms 1
            layer2-socket /tmp/osmocom_l2_1
-           sim reader test
+           sim none
            test-sim imsi $IMSI
            no barred-access
            rplmn 001 01
@@ -162,20 +162,14 @@ jobs:
         env:
           IMSI: ${{ steps.identity.outputs.imsi }}
 
-      - name: Create subscriber via VTY
+      - name: Create subscriber via HLR VTY
         run: |
           echo -e "enable\nsubscriber imsi $IMSI create\nupdate subscriber imsi $IMSI set msisdn $MSISDN" \
             | timeout 10 telnet 127.0.0.1 4258
-          echo "Subscriber created via VTY"
+          echo "Subscriber created via HLR VTY"
         env:
           IMSI: ${{ steps.identity.outputs.imsi }}
           MSISDN: ${{ steps.identity.outputs.msisdn }}
-
-      - name: Configure MSC-HLR connection via VTY
-        run: |
-          echo -e "enable\nconfigure terminal\nmsc\nhlr\nremote-ip 127.0.0.1\nremote-port 4222\nend\nexit" \
-            | timeout 10 telnet 127.0.0.1 4258 2>/dev/null || true
-          echo "MSC-HLR connection configured (if supported by this version)"
 
       - name: Launch FakeTRX (virtual Um interface)
         run: |
@@ -184,23 +178,31 @@ jobs:
           sleep 2
           echo "FakeTRX launched"
 
-      - name: Launch mobile (virtual phone) without deprecated -i flag
+      - name: Launch mobile (virtual phone)
         run: |
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           cd osmocom-bb/src/host/layer23/src/mobile
           ./mobile -c /tmp/mobile/mobile.cfg > /tmp/mobile.log 2>&1 &
           sleep 3
           echo "Mobile launched"
-          pgrep -x mobile || echo "Mobile may not be running (needs a base station to connect)"
+          pgrep -x mobile && echo "Mobile process confirmed running" || echo "Mobile may not be running"
 
-      - name: Send test SMS via OsmoMSC
+      - name: Configure MSC-HLR connection via VTY (MSC port 4254)
+        run: |
+          echo -e "enable\nconfigure terminal\nmsc\nhlr\nremote-ip 127.0.0.1\nremote-port 4222\nend\nexit" \
+            | timeout 10 telnet 127.0.0.1 4254 2>/dev/null || true
+          echo "MSC-HLR connection configured (if supported by this version)"
+
+      - name: Send test SMS via OsmoMSC VTY (port 4254)
         run: |
           sleep 3
-          echo -e "enable\nsms 1 $MSISDN test\n" | timeout 10 telnet 127.0.0.1 4258 2>/dev/null || true
-          echo "Test SMS sent"
+          echo -e "enable\nsubscriber imsi $IMSI sms sender imsi $IMSI send test\n" \
+            | timeout 10 telnet 127.0.0.1 4254 2>/dev/null || true
+          echo "Test SMS sent via MSC"
           echo "=== Mobile log (last 20 lines) ==="
           tail -20 /tmp/mobile.log || true
         env:
+          IMSI: ${{ steps.identity.outputs.imsi }}
           MSISDN: ${{ steps.identity.outputs.msisdn }}
 
       - name: Output subscriber credentials
