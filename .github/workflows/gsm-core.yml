@@ -20,7 +20,7 @@ jobs:
             build-essential libtool libtalloc-dev libsctp-dev shtool \
             autoconf automake git pkg-config make gcc \
             libgnutls28-dev libusb-1.0.0-dev libmnl-dev liburing-dev \
-            libpcsclite-dev \
+            libpcsclite-dev libortp-dev \
             osmo-hlr osmo-msc osmo-stp osmo-mgw \
             telnet netcat-openbsd
           echo "All packages installed"
