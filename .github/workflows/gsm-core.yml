@@ -1,0 +1,348 @@
+name: GSM Core – Create Number + SMS Reception
+
+on:
+  workflow_dispatch:
+    inputs:
+      msisdn:
+        description: 'Phone number (leave empty to auto‑generate)'
+        required: false
+        default: ''
+
+jobs:
+  create-sim:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Install all required packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential libtool libtalloc-dev libsctp-dev shtool \
+            autoconf automake git pkg-config make gcc \
+            libgnutls28-dev libusb-1.0.0-dev libmnl-dev liburing-dev \
+            libpcsclite-dev libortp-dev \
+            osmo-hlr osmo-msc osmo-stp osmo-mgw \
+            telnet netcat-openbsd
+          echo "All packages installed"
+
+      - name: Build all Osmocom libraries from master into isolated prefix
+        run: |
+          export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
+          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
+
+          # 1. libosmocore
+          git clone https://gitea.osmocom.org/osmocom/libosmocore
+          cd libosmocore && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
+          echo "libosmocore done"
+
+          # 2. libosmo-netif
+          git clone https://gitea.osmocom.org/osmocom/libosmo-netif
+          cd libosmo-netif && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
+          echo "libosmo-netif done"
+
+          # 3. libosmo-abis (disable DAHDI)
+          git clone https://gitea.osmocom.org/osmocom/libosmo-abis
+          cd libosmo-abis && autoreconf -fi && ./configure --prefix=/opt/osmocom --disable-dahdi && make -j$(nproc) && sudo make install && cd ..
+          echo "libosmo-abis done"
+
+          # 4. libosmo-sccp (master provides libosmo-sigtran 1.9.0)
+          git clone https://gitea.osmocom.org/osmocom/libosmo-sccp
+          cd libosmo-sccp && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
+          echo "libosmo-sccp done"
+
+          # 5. libosmo-gprs
+          git clone https://gitea.osmocom.org/osmocom/libosmo-gprs
+          cd libosmo-gprs && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
+          echo "libosmo-gprs done"
+
+          # 6. osmo-bts (TRX only)
+          git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-bts
+          cd osmo-bts && autoreconf -fi && ./configure --prefix=/opt/osmocom --enable-trx --disable-dahdi --disable-ortp --disable-sysmbts && make -j$(nproc) && sudo make install && cd ..
+          echo "osmo-bts done"
+
+          # 7. osmo-mgw (builds libosmo-mgcp-client >= 1.10.0 required by osmo-bsc 1.9.0)
+          git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-mgw
+          cd osmo-mgw && git checkout 1.10.0 && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
+          echo "osmo-mgw (libosmo-mgcp-client) done"
+
+          # 8. osmo-bsc — CHECKOUT 1.9.0 to match libosmo-sigtran 1.9.0
+          git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-bsc
+          cd osmo-bsc && git checkout 1.9.0 && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
+          echo "osmo-bsc done"
+
+          echo "All libraries built successfully"
+          ls /opt/osmocom/bin/osmo-bts-trx /opt/osmocom/bin/osmo-bsc
+
+      - name: Initialize HLR database
+        run: |
+          sudo mkdir -p /var/lib/osmocom /etc/osmocom
+          sudo osmo-hlr-db-tool -l /var/lib/osmocom/hlr.db create
+          sudo chmod 666 /var/lib/osmocom/hlr.db
+          echo "HLR database created"
+
+      - name: Configure Osmocom daemons
+        run: |
+          sudo tee /etc/osmocom/osmo-stp.cfg << 'CFG'
+          line vty
+           no login
+          cs7 instance 0
+           xua rkm routing-key-allocation dynamic-permitted
+           listen m3ua 2905
+            local-ip 127.0.0.1
+          CFG
+
+          sudo tee /etc/osmocom/osmo-hlr.cfg << 'CFG'
+          line vty
+           no login
+          bind 0.0.0.0
+          hlr
+           database /var/lib/osmocom/hlr.db
+          gsup
+           bind ip 127.0.0.1
+          ctrl
+           bind 0.0.0.0
+          CFG
+
+          sudo tee /etc/osmocom/osmo-msc.cfg << 'CFG'
+          line vty
+           no login
+          bind 0.0.0.0
+          network
+           network country code 001
+           mobile network code 01
+           short name OsmoMSC
+           long name OsmoMSC
+           encryption a5 0
+           authentication optional
+          msc
+           mgw remote-ip 127.0.0.1
+          CFG
+
+          sudo tee /etc/osmocom/osmo-mgw.cfg << 'CFG'
+          line vty
+           no login
+          mgcp
+           bind ip 127.0.0.1
+           bind port 2427
+           rtp port-range 4002 16000
+           rtp bind-ip 127.0.0.1
+           number endpoints 31
+          CFG
+          echo "Configuration complete"
+
+      - name: Start core network daemons
+        run: |
+          sudo osmo-stp -c /etc/osmocom/osmo-stp.cfg > /tmp/stp.log 2>&1 &
+          sleep 2; pgrep -x osmo-stp || { echo "STP failed"; cat /tmp/stp.log; exit 1; }
+          echo "STP running"
+
+          sudo osmo-hlr -c /etc/osmocom/osmo-hlr.cfg > /tmp/hlr.log 2>&1 &
+          sleep 2; pgrep -x osmo-hlr || { echo "HLR failed"; cat /tmp/hlr.log; exit 1; }
+          echo "HLR running"
+
+          sudo osmo-mgw -c /etc/osmocom/osmo-mgw.cfg > /tmp/mgw.log 2>&1 &
+          sleep 2
+
+          sudo osmo-msc -c /etc/osmocom/osmo-msc.cfg > /tmp/msc.log 2>&1 &
+          sleep 3; pgrep -x osmo-msc || { echo "MSC failed"; cat /tmp/msc.log; exit 1; }
+          echo "MSC running"
+
+      - name: Configure and launch osmo-bsc
+        run: |
+          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
+          sudo mkdir -p /tmp/bsc
+          sudo tee /tmp/bsc/osmo-bsc.cfg << 'CFG'
+          !
+          line vty
+           no login
+          !
+          cs7 instance 0
+           point-code 0.23.3
+           asp asp-dynamic 2905 2905
+            m3ua
+             remote-ip 127.0.0.1
+             local-ip 127.0.0.1
+             sctp-role client
+           as as-bsc
+            m3ua
+             asp asp-dynamic
+            routing-key 0 0.23.3
+          !
+          network
+           network country code 001
+           mobile network code 01
+          !
+          msc 0
+           remote-ip 127.0.0.1
+           remote-port 4254
+          !
+          bts 0
+           type osmo-bts
+           band 1800
+           cell_identity 0
+           location_area_code 1
+           base_station_id_code 63
+           ipa unit-id 1234 0
+            rsl e1 tei 0
+            oml e1 tei 0
+           trx 0
+            arfcn 512
+            nominal power 23
+            max_power_red 20
+            timeslot 0
+             phys_chan_config CCCH+SDCCH4
+            timeslot 1
+             phys_chan_config TCH/F_TCH/H_SDCCH8_PDCH
+          !
+          CFG
+          sudo /opt/osmocom/bin/osmo-bsc -c /tmp/bsc/osmo-bsc.cfg > /tmp/bsc.log 2>&1 &
+          sleep 4
+          pgrep -x osmo-bsc && echo "BSC running" || { echo "BSC not running"; cat /tmp/bsc.log; }
+
+      - name: Launch osmo-bts-trx
+        run: |
+          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
+          sudo mkdir -p /tmp/bts
+          sudo tee /tmp/bts/osmo-bts.cfg << 'CFG'
+          !
+          line vty
+           no login
+          !
+          phy 0
+           instance 0
+           osmotrx rx-ip 127.0.0.1
+           osmotrx tx-ip 127.0.0.1
+          !
+          bts 0
+           band 1800
+           ipa unit-id 1234 0
+            oml remote-ip 127.0.0.1
+           rsl e1 tei 0
+           paging queue-size 200
+           paging lifetime 0
+           trx 0
+            power-ramp max-initial 0
+            power-ramp step-interval 1
+            ms-power-control dsp
+            timeslot 0
+             phys-chan-config CCCH+SDCCH4
+            timeslot 1
+             phys-chan-config TCH/F_TCH/H_SDCCH8_PDCH
+          !
+          CFG
+          sudo /opt/osmocom/bin/osmo-bts-trx -c /tmp/bts/osmo-bts.cfg > /tmp/bts.log 2>&1 &
+          sleep 3
+          pgrep -x osmo-bts-trx && echo "BTS running" || { echo "BTS not running"; cat /tmp/bts.log; }
+
+      - name: Configure MSC-HLR link via VTY
+        run: |
+          sleep 2
+          echo -e "enable\nconfigure terminal\nmsc\nhlr\nremote-ip 127.0.0.1\nremote-port 4222\nend\nexit" \
+            | timeout 10 telnet 127.0.0.1 4254 2>/dev/null || true
+          echo "MSC-HLR VTY configuration attempted"
+
+      - name: Clone OsmocomBB
+        run: |
+          git clone https://gitea.osmocom.org/phone-side/osmocom-bb
+          echo "OsmocomBB cloned"
+
+      - name: Build OsmocomBB host programs
+        run: |
+          export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
+          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
+          cd osmocom-bb/src/host/layer23
+          ls configure.ac
+          autoreconf -fi
+          ./configure
+          make -j$(nproc)
+          echo "Host programs built"
+          ls src/mobile/mobile
+
+      - name: Generate subscriber identity
+        id: identity
+        run: |
+          RANDSUFF=$(shuf -i 10000000-99999999 -n 1)
+          MSISDN="234$RANDSUFF"
+          IMSI="001010$(shuf -i 1000000000-9999999999 -n 1)"
+          echo "msisdn=$MSISDN" >> $GITHUB_OUTPUT
+          echo "imsi=$IMSI" >> $GITHUB_OUTPUT
+          echo "Identity: +$MSISDN (IMSI: $IMSI)"
+
+      - name: Create subscriber via VTY
+        run: |
+          echo -e "enable\nsubscriber imsi $IMSI create\nupdate subscriber imsi $IMSI set msisdn $MSISDN" \
+            | timeout 10 telnet 127.0.0.1 4258
+          echo "Subscriber created via VTY"
+        env:
+          IMSI: ${{ steps.identity.outputs.imsi }}
+          MSISDN: ${{ steps.identity.outputs.msisdn }}
+
+      - name: Launch FakeTRX (virtual Um interface)
+        run: |
+          cd osmocom-bb/src/target/trx_toolkit
+          python3 fake_trx.py > /tmp/faketrx.log 2>&1 &
+          sleep 2
+          echo "FakeTRX launched"
+
+      - name: Launch mobile with minimal config
+        run: |
+          mkdir -p /tmp/mobile
+          cat > /tmp/mobile/mobile.cfg << 'CFG'
+          !
+          line vty
+           no login
+          !
+          ms 1
+           layer2-socket /tmp/osmocom_l2
+           sap-socket /tmp/osmocom_sap
+          !
+          CFG
+          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
+          cd osmocom-bb/src/host/layer23/src/mobile
+          ./mobile -c /tmp/mobile/mobile.cfg > /tmp/mobile.log 2>&1 &
+          sleep 4
+          pgrep -x mobile && echo "Mobile running" || echo "Mobile not running"
+
+      - name: Configure SIM and network via VTY at runtime
+        run: |
+          sleep 3
+          echo -e "enable\nconfigure terminal\nms 1\nsim test\ntest-sim imsi $IMSI ki comp128 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\nnetwork-selection-mode auto\nrplmn 001 01\nexit\nno shutdown" \
+            | timeout 10 telnet 127.0.0.1 4247 2>/dev/null || true
+          echo "SIM configuration attempted"
+        env:
+          IMSI: ${{ steps.identity.outputs.imsi }}
+
+      - name: Send test SMS via OsmoMSC
+        run: |
+          sleep 5
+          echo -e "enable\nsms 1 $MSISDN Hello from PhantomLink GSM Core" \
+            | timeout 10 telnet 127.0.0.1 4254 2>/dev/null || true
+          echo "Test SMS command sent"
+          echo ""
+          echo "=== Mobile log (last 20 lines) ==="
+          tail -20 /tmp/mobile.log || true
+        env:
+          MSISDN: ${{ steps.identity.outputs.msisdn }}
+
+      - name: Output subscriber credentials
+        run: |
+          echo "======================================================"
+          echo "  PHANTOMLINK GSM CORE - NUMBER CREATED"
+          echo "======================================================"
+          echo "  Phone Number: +$MSISDN"
+          echo "  IMSI:         $IMSI"
+          echo "  Country:      Nigeria (+234)"
+          echo "======================================================"
+        env:
+          IMSI: ${{ steps.identity.outputs.imsi }}
+          MSISDN: ${{ steps.identity.outputs.msisdn }}
+
+      - name: Push to PhantomLink subscriber panel
+        run: |
+          curl -s -X POST https://oga1234-phantomlink-gsm.hf.space/api/subscriber/create \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.HF_TOKEN }}" \
+            -d "{\"imsi\":\"$IMSI\",\"msisdn\":\"$MSISDN\"}"
+        env:
+          IMSI: ${{ steps.identity.outputs.imsi }}
+          MSISDN: ${{ steps.identity.outputs.msisdn }}
