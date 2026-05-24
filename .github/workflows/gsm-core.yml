@@ -26,9 +26,9 @@ jobs:
           sudo chmod 666 /var/lib/osmocom/hlr.db
           echo "HLR database created and permissions fixed"
 
-      - name: Configure Osmocom daemons (no unsupported commands)
+      - name: Configure Osmocom daemons
         run: |
-          # ── osmo-stp.cfg (Ubuntu 24.04 native osmo-stp) ──
+          # ── osmo-stp.cfg ──
           sudo tee /etc/osmocom/osmo-stp.cfg << 'CFG'
           line vty
            no login
@@ -38,7 +38,7 @@ jobs:
             local-ip 127.0.0.1
           CFG
 
-          # ── osmo-hlr.cfg (no subscriber-create-on-demand — not supported by Ubuntu 24.04 package) ──
+          # ── osmo-hlr.cfg ──
           sudo tee /etc/osmocom/osmo-hlr.cfg << 'CFG'
           line vty
            no login
@@ -51,7 +51,7 @@ jobs:
            bind 0.0.0.0
           CFG
 
-          # ── osmo-msc.cfg ──
+          # ── osmo-msc.cfg (hlr block removed – unsupported in Ubuntu package) ──
           sudo tee /etc/osmocom/osmo-msc.cfg << 'CFG'
           line vty
            no login
@@ -65,9 +65,6 @@ jobs:
            authentication optional
           msc
            mgw remote-ip 127.0.0.1
-           hlr
-            remote-ip 127.0.0.1
-            remote-port 4222
           CFG
 
           # ── osmo-mgw.cfg ──
