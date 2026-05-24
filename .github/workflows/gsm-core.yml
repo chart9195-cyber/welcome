@@ -11,10 +11,11 @@ on:
 jobs:
   create-sim:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 40
     steps:
-      - name: Install all required packages
+      - name: Install all required packages (with Osmocom nightly PPA)
         run: |
+          sudo add-apt-repository ppa:osmocom/nightly -y
           sudo apt-get update
           sudo apt-get install -y \
             build-essential libtool libtalloc-dev libsctp-dev shtool \
@@ -22,56 +23,9 @@ jobs:
             libgnutls28-dev libusb-1.0.0-dev libmnl-dev liburing-dev \
             libpcsclite-dev libortp-dev \
             osmo-hlr osmo-msc osmo-stp osmo-mgw \
+            osmo-bsc osmo-bts \
             telnet netcat-openbsd
           echo "All packages installed"
-
-      - name: Build all Osmocom libraries from master into isolated prefix
-        run: |
-          export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
-          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
-
-          # 1. libosmocore
-          git clone https://gitea.osmocom.org/osmocom/libosmocore
-          cd libosmocore && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
-          echo "libosmocore done"
-
-          # 2. libosmo-netif
-          git clone https://gitea.osmocom.org/osmocom/libosmo-netif
-          cd libosmo-netif && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
-          echo "libosmo-netif done"
-
-          # 3. libosmo-abis (disable DAHDI)
-          git clone https://gitea.osmocom.org/osmocom/libosmo-abis
-          cd libosmo-abis && autoreconf -fi && ./configure --prefix=/opt/osmocom --disable-dahdi && make -j$(nproc) && sudo make install && cd ..
-          echo "libosmo-abis done"
-
-          # 4. libosmo-sccp (master provides libosmo-sigtran 1.9.0)
-          git clone https://gitea.osmocom.org/osmocom/libosmo-sccp
-          cd libosmo-sccp && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
-          echo "libosmo-sccp done"
-
-          # 5. libosmo-gprs
-          git clone https://gitea.osmocom.org/osmocom/libosmo-gprs
-          cd libosmo-gprs && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
-          echo "libosmo-gprs done"
-
-          # 6. osmo-bts (TRX only)
-          git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-bts
-          cd osmo-bts && autoreconf -fi && ./configure --prefix=/opt/osmocom --enable-trx --disable-dahdi --disable-ortp --disable-sysmbts && make -j$(nproc) && sudo make install && cd ..
-          echo "osmo-bts done"
-
-          # 7. osmo-mgw (builds libosmo-mgcp-client >= 1.10.0 required by osmo-bsc 1.9.0)
-          git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-mgw
-          cd osmo-mgw && git checkout 1.10.0 && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
-          echo "osmo-mgw (libosmo-mgcp-client) done"
-
-          # 8. osmo-bsc — CHECKOUT 1.9.0 to match libosmo-sigtran 1.9.0
-          git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-bsc
-          cd osmo-bsc && git checkout 1.9.0 && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
-          echo "osmo-bsc done"
-
-          echo "All libraries built successfully"
-          ls /opt/osmocom/bin/osmo-bts-trx /opt/osmocom/bin/osmo-bsc
 
       - name: Initialize HLR database
         run: |
@@ -128,30 +82,8 @@ jobs:
            rtp bind-ip 127.0.0.1
            number endpoints 31
           CFG
-          echo "Configuration complete"
 
-      - name: Start core network daemons
-        run: |
-          sudo osmo-stp -c /etc/osmocom/osmo-stp.cfg > /tmp/stp.log 2>&1 &
-          sleep 2; pgrep -x osmo-stp || { echo "STP failed"; cat /tmp/stp.log; exit 1; }
-          echo "STP running"
-
-          sudo osmo-hlr -c /etc/osmocom/osmo-hlr.cfg > /tmp/hlr.log 2>&1 &
-          sleep 2; pgrep -x osmo-hlr || { echo "HLR failed"; cat /tmp/hlr.log; exit 1; }
-          echo "HLR running"
-
-          sudo osmo-mgw -c /etc/osmocom/osmo-mgw.cfg > /tmp/mgw.log 2>&1 &
-          sleep 2
-
-          sudo osmo-msc -c /etc/osmocom/osmo-msc.cfg > /tmp/msc.log 2>&1 &
-          sleep 3; pgrep -x osmo-msc || { echo "MSC failed"; cat /tmp/msc.log; exit 1; }
-          echo "MSC running"
-
-      - name: Configure and launch osmo-bsc
-        run: |
-          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
-          sudo mkdir -p /tmp/bsc
-          sudo tee /tmp/bsc/osmo-bsc.cfg << 'CFG'
+          sudo tee /etc/osmocom/osmo-bsc.cfg << 'CFG'
           !
           line vty
            no login
@@ -195,15 +127,8 @@ jobs:
              phys_chan_config TCH/F_TCH/H_SDCCH8_PDCH
           !
           CFG
-          sudo /opt/osmocom/bin/osmo-bsc -c /tmp/bsc/osmo-bsc.cfg > /tmp/bsc.log 2>&1 &
-          sleep 4
-          pgrep -x osmo-bsc && echo "BSC running" || { echo "BSC not running"; cat /tmp/bsc.log; }
 
-      - name: Launch osmo-bts-trx
-        run: |
-          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
-          sudo mkdir -p /tmp/bts
-          sudo tee /tmp/bts/osmo-bts.cfg << 'CFG'
+          sudo tee /etc/osmocom/osmo-bts.cfg << 'CFG'
           !
           line vty
            no login
@@ -230,9 +155,30 @@ jobs:
              phys-chan-config TCH/F_TCH/H_SDCCH8_PDCH
           !
           CFG
-          sudo /opt/osmocom/bin/osmo-bts-trx -c /tmp/bts/osmo-bts.cfg > /tmp/bts.log 2>&1 &
-          sleep 3
-          pgrep -x osmo-bts-trx && echo "BTS running" || { echo "BTS not running"; cat /tmp/bts.log; }
+          echo "Configuration complete"
+
+      - name: Start core network daemons
+        run: |
+          sudo osmo-stp -c /etc/osmocom/osmo-stp.cfg > /tmp/stp.log 2>&1 &
+          sleep 2; pgrep -x osmo-stp || { echo "STP failed"; cat /tmp/stp.log; exit 1; }
+          echo "STP running"
+
+          sudo osmo-hlr -c /etc/osmocom/osmo-hlr.cfg > /tmp/hlr.log 2>&1 &
+          sleep 2; pgrep -x osmo-hlr || { echo "HLR failed"; cat /tmp/hlr.log; exit 1; }
+          echo "HLR running"
+
+          sudo osmo-mgw -c /etc/osmocom/osmo-mgw.cfg > /tmp/mgw.log 2>&1 &
+          sleep 2
+
+          sudo osmo-msc -c /etc/osmocom/osmo-msc.cfg > /tmp/msc.log 2>&1 &
+          sleep 3; pgrep -x osmo-msc || { echo "MSC failed"; cat /tmp/msc.log; exit 1; }
+          echo "MSC running"
+
+          sudo osmo-bsc -c /etc/osmocom/osmo-bsc.cfg > /tmp/bsc.log 2>&1 &
+          sleep 3; pgrep -x osmo-bsc && echo "BSC running" || { echo "BSC not running"; cat /tmp/bsc.log; }
+
+          sudo osmo-bts-trx -c /etc/osmocom/osmo-bts.cfg > /tmp/bts.log 2>&1 &
+          sleep 3; pgrep -x osmo-bts-trx && echo "BTS running" || { echo "BTS not running"; cat /tmp/bts.log; }
 
       - name: Configure MSC-HLR link via VTY
         run: |
@@ -241,21 +187,15 @@ jobs:
             | timeout 10 telnet 127.0.0.1 4254 2>/dev/null || true
           echo "MSC-HLR VTY configuration attempted"
 
-      - name: Clone OsmocomBB
+      - name: Clone and build OsmocomBB (mobile + FakeTRX)
         run: |
           git clone https://gitea.osmocom.org/phone-side/osmocom-bb
-          echo "OsmocomBB cloned"
-
-      - name: Build OsmocomBB host programs
-        run: |
-          export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
-          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           cd osmocom-bb/src/host/layer23
           ls configure.ac
           autoreconf -fi
           ./configure
           make -j$(nproc)
-          echo "Host programs built"
+          echo "Mobile built"
           ls src/mobile/mobile
 
       - name: Generate subscriber identity
@@ -297,7 +237,6 @@ jobs:
            sap-socket /tmp/osmocom_sap
           !
           CFG
-          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           cd osmocom-bb/src/host/layer23/src/mobile
           ./mobile -c /tmp/mobile/mobile.cfg > /tmp/mobile.log 2>&1 &
           sleep 4
