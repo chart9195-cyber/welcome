@@ -20,7 +20,7 @@ jobs:
             build-essential libtool libtalloc-dev libsctp-dev shtool \
             autoconf automake git pkg-config make gcc \
             libgnutls28-dev libusb-1.0.0-dev libmnl-dev liburing-dev \
-            libpcsclite-dev libortp-dev libosmo-sccp-dev libosmo-sigtran-dev \
+            libpcsclite-dev libortp-dev \
             osmo-hlr osmo-msc osmo-stp osmo-mgw \
             telnet netcat-openbsd
           echo "All packages installed"
@@ -71,9 +71,21 @@ jobs:
           sudo make install
           echo "libosmo-abis installed"
 
+      - name: Build libosmo-sccp (master) into isolated prefix
+        run: |
+          export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
+          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
+          git clone https://gitea.osmocom.org/osmocom/libosmo-sccp
+          cd libosmo-sccp
+          autoreconf -fi
+          ./configure --prefix=/opt/osmocom
+          make -j$(nproc)
+          sudo make install
+          echo "libosmo-sccp installed"
+
       - name: Build osmo-bts from source (TRX only)
         run: |
-          export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:/usr/lib/pkgconfig:$PKG_CONFIG_PATH
+          export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-bts
           cd osmo-bts
@@ -83,12 +95,13 @@ jobs:
           sudo make install
           ls /opt/osmocom/bin/osmo-bts-trx
 
-      - name: Build osmo-bsc from source
+      - name: Build osmo-bsc (stable release 1.11.0)
         run: |
-          export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:/usr/lib/pkgconfig:$PKG_CONFIG_PATH
+          export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-bsc
           cd osmo-bsc
+          git checkout 1.11.0
           autoreconf -fi
           ./configure --prefix=/opt/osmocom
           make -j$(nproc)
@@ -242,7 +255,7 @@ jobs:
             timeslot 0
              phys-chan-config CCCH+SDCCH4
             timeslot 1
-             phys-chan-config TCH/F_TCH/H_SDCCH8_PDCH
+             phys-chan_config TCH/F_TCH/H_SDCCH8_PDCH
           !
           CFG
           sudo /opt/osmocom/bin/osmo-bts-trx -c /tmp/bts/osmo-bts.cfg > /tmp/bts.log 2>&1 &
