@@ -11,7 +11,7 @@ on:
 jobs:
   create-sim:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       # ============================================================
       # PHASE 1: OSMOCON CORE NETWORK
@@ -20,9 +20,20 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y osmo-hlr osmo-msc osmo-stp osmo-mgw telnet netcat-openbsd \
-            autoconf automake libtool pkg-config libosmocore-dev libtalloc-dev libpcsclite-dev \
-            libfftw3-dev
+            autoconf automake libtool pkg-config libtalloc-dev libsctp-dev \
+            libfftw3-dev libpcsclite-dev gcc make git
           echo "All packages installed"
+
+      - name: Build libosmocore from source (provides libosmoisdn)
+        run: |
+          git clone https://gitea.osmocom.org/osmocom/libosmocore
+          cd libosmocore
+          autoreconf -fi
+          ./configure
+          make -j$(nproc)
+          sudo make install
+          sudo ldconfig
+          echo "libosmocore built and installed"
 
       - name: Initialize HLR database
         run: |
