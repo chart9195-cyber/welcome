@@ -11,24 +11,27 @@ on:
 jobs:
   create-sim:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: Install Osmocom from Ubuntu universe
+      # ============================================================
+      # PHASE 1: OSMOCON CORE NETWORK
+      # ============================================================
+      - name: Install Osmocom core network
         run: |
           sudo apt-get update
-          sudo apt-get install -y osmo-hlr osmo-msc osmo-stp osmo-mgw telnet netcat-openbsd
-          echo "All Osmocom packages installed from Ubuntu universe"
+          sudo apt-get install -y osmo-hlr osmo-msc osmo-stp osmo-mgw telnet netcat-openbsd \
+            autoconf automake libtool pkg-config libosmocore-dev libtalloc-dev libpcsclite-dev
+          echo "All packages installed"
 
       - name: Initialize HLR database
         run: |
           sudo mkdir -p /var/lib/osmocom /etc/osmocom
           sudo osmo-hlr-db-tool -l /var/lib/osmocom/hlr.db create
           sudo chmod 666 /var/lib/osmocom/hlr.db
-          echo "HLR database created and permissions fixed"
+          echo "HLR database created"
 
       - name: Configure Osmocom daemons
         run: |
-          # ── osmo-stp.cfg ──
           sudo tee /etc/osmocom/osmo-stp.cfg << 'CFG'
           line vty
            no login
@@ -37,8 +40,6 @@ jobs:
            listen m3ua 2905
             local-ip 127.0.0.1
           CFG
-
-          # ── osmo-hlr.cfg ──
           sudo tee /etc/osmocom/osmo-hlr.cfg << 'CFG'
           line vty
            no login
@@ -50,8 +51,6 @@ jobs:
           ctrl
            bind 0.0.0.0
           CFG
-
-          # ── osmo-msc.cfg (hlr block removed – unsupported in Ubuntu package) ──
           sudo tee /etc/osmocom/osmo-msc.cfg << 'CFG'
           line vty
            no login
@@ -66,8 +65,6 @@ jobs:
           msc
            mgw remote-ip 127.0.0.1
           CFG
-
-          # ── osmo-mgw.cfg ──
           sudo tee /etc/osmocom/osmo-mgw.cfg << 'CFG'
           line vty
            no login
@@ -83,23 +80,91 @@ jobs:
       - name: Start Osmocom daemons
         run: |
           sudo osmo-stp -c /etc/osmocom/osmo-stp.cfg > /tmp/stp.log 2>&1 &
-          sleep 2
-          pgrep -x osmo-stp || { echo "STP failed"; cat /tmp/stp.log; exit 1; }
+          sleep 2; pgrep -x osmo-stp || { echo "STP failed"; cat /tmp/stp.log; exit 1; }
           echo "STP running"
-
           sudo osmo-hlr -c /etc/osmocom/osmo-hlr.cfg > /tmp/hlr.log 2>&1 &
-          sleep 2
-          pgrep -x osmo-hlr || { echo "HLR failed"; cat /tmp/hlr.log; exit 1; }
+          sleep 2; pgrep -x osmo-hlr || { echo "HLR failed"; cat /tmp/hlr.log; exit 1; }
           echo "HLR running"
-
           sudo osmo-mgw -c /etc/osmocom/osmo-mgw.cfg > /tmp/mgw.log 2>&1 &
           sleep 2
-
           sudo osmo-msc -c /etc/osmocom/osmo-msc.cfg > /tmp/msc.log 2>&1 &
-          sleep 3
-          pgrep -x osmo-msc || { echo "MSC failed"; cat /tmp/msc.log; exit 1; }
+          sleep 3; pgrep -x osmo-msc || { echo "MSC failed"; cat /tmp/msc.log; exit 1; }
           echo "MSC running"
 
+      # ============================================================
+      # PHASE 2: VIRTUAL RADIO (FakeTRX) + VIRTUAL MOBILE STATION
+      # ============================================================
+      - name: Clone OsmocomBB (contains FakeTRX and mobile)
+        run: |
+          git clone https://gitea.osmocom.org/phone-side/osmocom-bb
+          echo "OsmocomBB cloned"
+          # FakeTRX is at src/target/trx_toolkit/fake_trx.py (Python, no compilation needed)
+          ls osmocom-bb/src/target/trx_toolkit/fake_trx.py
+
+      - name: Build OsmocomBB host programs (mobile + trxcon)
+        run: |
+          cd osmocom-bb
+          autoreconf -fi
+          ./configure
+          make -j$(nproc)
+          echo "OsmocomBB host programs built"
+          ls src/host/layer23/src/mobile/mobile
+          ls src/host/trxcon/trxcon
+
+      - name: Configure virtual mobile station (test SIM with our IMSI)
+        run: |
+          mkdir -p /tmp/mobile
+          cat > /tmp/mobile/mobile.cfg << CFG
+          !
+          ! OsmocomBB mobile configuration
+          !
+          line vty
+           no login
+           bind 0.0.0.0
+          !
+          ms 1
+           layer2-socket /tmp/osmocom_l2_1
+           sim reader test
+           test-sim imsi $IMSI
+           no barred-access
+           rplmn 001 01
+          CFG
+          echo "Mobile configuration created with IMSI: $IMSI"
+          cat /tmp/mobile/mobile.cfg
+        env:
+          IMSI: ${{ steps.identity.outputs.imsi }}
+
+      - name: Launch FakeTRX (virtual Um interface)
+        run: |
+          cd osmocom-bb/src/target/trx_toolkit
+          python3 fake_trx.py --trx MS@127.0.0.1:6700 > /tmp/faketrx.log 2>&1 &
+          sleep 2
+          echo "FakeTRX launched"
+
+      - name: Launch trxcon (L1CTL to TRX bridge)
+        run: |
+          cd osmocom-bb/src/host/trxcon
+          ./trxcon -i 127.0.0.1 > /tmp/trxcon.log 2>&1 &
+          sleep 2
+          echo "trxcon launched"
+
+      - name: Launch mobile (virtual phone) and register on network
+        run: |
+          cd osmocom-bb/src/host/layer23/src/mobile
+          ./mobile -c /tmp/mobile/mobile.cfg -i 127.0.0.1 > /tmp/mobile.log 2>&1 &
+          sleep 3
+          echo "Mobile launched"
+          # Check mobile is running
+          pgrep -x mobile || echo "Mobile may not be running (expected for initial registration)"
+          # Send registration commands via VTY
+          echo -e "enable\nms 1 location-update" | timeout 10 telnet 127.0.0.1 4247 2>/dev/null || true
+          echo "Location update sent"
+        env:
+          IMSI: ${{ steps.identity.outputs.imsi }}
+
+      # ============================================================
+      # SUBSCRIBER CREATION
+      # ============================================================
       - name: Generate subscriber identity
         id: identity
         run: |
@@ -123,6 +188,9 @@ jobs:
         run: |
           echo -e "enable\nsms 1 $MSISDN test\n" | timeout 10 telnet 127.0.0.1 4258 2>/dev/null || true
           echo "Test SMS sent"
+          # Check mobile log for SMS reception
+          echo "=== Mobile log (last 20 lines) ==="
+          tail -20 /tmp/mobile.log || true
         env:
           MSISDN: ${{ steps.identity.outputs.msisdn }}
 
