@@ -20,7 +20,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y osmo-hlr osmo-msc osmo-stp osmo-mgw telnet netcat-openbsd \
-            autoconf automake libtool pkg-config libosmocore-dev libtalloc-dev libpcsclite-dev
+            autoconf automake libtool pkg-config libosmocore-dev libtalloc-dev libpcsclite-dev \
+            libfftw3-dev
           echo "All packages installed"
 
       - name: Initialize HLR database
@@ -94,16 +95,19 @@ jobs:
       # ============================================================
       # PHASE 2: VIRTUAL RADIO (FakeTRX) + VIRTUAL MOBILE STATION
       # ============================================================
-      - name: Clone OsmocomBB (contains FakeTRX and mobile)
+      - name: Clone OsmocomBB (full clone, ensure configure.ac exists)
         run: |
           git clone https://gitea.osmocom.org/phone-side/osmocom-bb
-          echo "OsmocomBB cloned"
-          # FakeTRX is at src/target/trx_toolkit/fake_trx.py (Python, no compilation needed)
-          ls osmocom-bb/src/target/trx_toolkit/fake_trx.py
+          cd osmocom-bb
+          git checkout master
+          # Verify configure.ac exists
+          ls configure.ac
+          echo "OsmocomBB cloned successfully"
 
       - name: Build OsmocomBB host programs (mobile + trxcon)
         run: |
           cd osmocom-bb
+          rm -f .version
           autoreconf -fi
           ./configure
           make -j$(nproc)
@@ -154,9 +158,7 @@ jobs:
           ./mobile -c /tmp/mobile/mobile.cfg -i 127.0.0.1 > /tmp/mobile.log 2>&1 &
           sleep 3
           echo "Mobile launched"
-          # Check mobile is running
           pgrep -x mobile || echo "Mobile may not be running (expected for initial registration)"
-          # Send registration commands via VTY
           echo -e "enable\nms 1 location-update" | timeout 10 telnet 127.0.0.1 4247 2>/dev/null || true
           echo "Location update sent"
         env:
@@ -188,7 +190,6 @@ jobs:
         run: |
           echo -e "enable\nsms 1 $MSISDN test\n" | timeout 10 telnet 127.0.0.1 4258 2>/dev/null || true
           echo "Test SMS sent"
-          # Check mobile log for SMS reception
           echo "=== Mobile log (last 20 lines) ==="
           tail -20 /tmp/mobile.log || true
         env:
