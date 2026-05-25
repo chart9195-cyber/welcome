@@ -324,10 +324,10 @@ jobs:
           sleep 2
           echo "FakeTRX launched"
 
-      - name: Launch mobile with minimal config
+      - name: Launch mobile with full SIM config (Jenkins CI verified)
         run: |
           mkdir -p /tmp/mobile
-          cat > /tmp/mobile/mobile.cfg << 'CFG'
+          cat > /tmp/mobile/mobile.cfg << CFG
           !
           line vty
            no login
@@ -335,6 +335,10 @@ jobs:
           ms 1
            layer2-socket /tmp/osmocom_l2
            sap-socket /tmp/osmocom_sap
+           imei 000000000000000 0 imei-fixed
+           sim test test-sim imsi $IMSI ki comp128 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+           no barred-access
+           rplmn 001 01
           !
           CFG
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
@@ -342,8 +346,10 @@ jobs:
           ./mobile -c /tmp/mobile/mobile.cfg > /tmp/mobile.log 2>&1 &
           sleep 4
           pgrep -x mobile && echo "Mobile running" || echo "Mobile not running"
+        env:
+          IMSI: ${{ steps.identity.outputs.imsi }}
 
-      - name: Configure SIM and network via VTY at runtime
+      - name: Configure SIM and network via VTY at runtime (fallback)
         run: |
           sleep 3
           echo -e "enable\nconfigure terminal\nms 1\nsim test\ntest-sim imsi $IMSI ki comp128 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\nnetwork-selection-mode auto\nrplmn 001 01\nexit\nno shutdown" \
