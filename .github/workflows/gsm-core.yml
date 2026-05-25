@@ -125,12 +125,6 @@ jobs:
           sudo make install
           ls /opt/osmocom/bin/osmo-bsc
 
-      - name: Register custom libraries with ldconfig
-        run: |
-          echo "/opt/osmocom/lib" | sudo tee /etc/ld.so.conf.d/osmocom.conf
-          sudo ldconfig
-          echo "Libraries registered"
-
       - name: Initialize HLR database
         run: |
           sudo mkdir -p /var/lib/osmocom /etc/osmocom
@@ -245,7 +239,7 @@ jobs:
              phys_chan_config TCH/F_TCH/H_SDCCH8_PDCH
           !
           CFG
-          sudo /opt/osmocom/bin/osmo-bsc -c /tmp/bsc/osmo-bsc.cfg > /tmp/bsc.log 2>&1 &
+          sudo env LD_LIBRARY_PATH=/opt/osmocom/lib /opt/osmocom/bin/osmo-bsc -c /tmp/bsc/osmo-bsc.cfg > /tmp/bsc.log 2>&1 &
           sleep 3
           pgrep -x osmo-bsc && echo "BSC running" || { echo "BSC not running"; cat /tmp/bsc.log; }
 
@@ -280,7 +274,7 @@ jobs:
              phys-chan_config TCH/F_TCH/H_SDCCH8_PDCH
           !
           CFG
-          sudo /opt/osmocom/bin/osmo-bts-trx -c /tmp/bts/osmo-bts.cfg > /tmp/bts.log 2>&1 &
+          sudo env LD_LIBRARY_PATH=/opt/osmocom/lib /opt/osmocom/bin/osmo-bts-trx -c /tmp/bts/osmo-bts.cfg > /tmp/bts.log 2>&1 &
           sleep 3
           pgrep -x osmo-bts-trx && echo "BTS running" || { echo "BTS not running"; cat /tmp/bts.log; }
 
