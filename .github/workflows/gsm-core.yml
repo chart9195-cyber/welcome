@@ -26,10 +26,9 @@ jobs:
             autoconf automake git pkg-config make gcc \
             libgnutls28-dev libusb-1.0.0-dev libmnl-dev liburing-dev \
             libpcsclite-dev libortp-dev \
-            libosmo-gsup-client-dev \
-            osmo-hlr osmo-mgw osmo-bsc \
+            osmo-mgw \
             telnet netcat-openbsd
-          echo "All packages installed (system osmo-bsc, osmo-mgw, osmo-hlr, libosmo-gsup-client-dev)"
+          echo "All packages installed (osmo-mgw only)"
 
       - name: Build libosmocore into isolated prefix
         run: |
@@ -65,7 +64,7 @@ jobs:
           sudo make install
           echo "libosmo-netif installed"
 
-      - name: Build libosmo-abis (tag 2.1.0) into isolated prefix
+      - name: Build libosmo-abis (tag 2.1.0 — still exports ipaccess_fd_cb) into isolated prefix
         run: |
           export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
@@ -116,133 +115,23 @@ jobs:
           sudo make install
           ls /opt/osmocom/bin/osmo-bts-trx
 
-      - name: Build osmo-stp from source (tag 1.6.0 — ABI match for sigtran)
+      - name: Build osmocom-nitb from source (openbsc master)
         run: |
           export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
-          git clone https://gitea.osmocom.org/osmocom/libosmo-sccp
-          cd libosmo-sccp
-          git checkout 1.6.0 || { echo "Failed to checkout libosmo-sccp 1.6.0"; exit 1; }
+          git clone https://gitea.osmocom.org/cellular-infrastructure/openbsc
+          cd openbsc
           autoreconf -fi
           ./configure --prefix=/opt/osmocom
           make -j$(nproc)
           sudo make install
-          ls /opt/osmocom/bin/osmo-stp
-          echo "osmo-stp 1.6.0 installed"
+          ls /opt/osmocom/bin/osmo-nitb
+          echo "osmo-nitb installed"
 
-      - name: Build osmo-msc from source (tag 1.9.0 — ABI match for sigtran)
+      - name: Configure and launch osmocom-nitb (all-in-one, no MSC/HLR/STP)
         run: |
-          export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:/usr/lib/pkgconfig:$PKG_CONFIG_PATH
-          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
-          git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-msc
-          cd osmo-msc
-          git checkout 1.9.0 || { echo "Failed to checkout osmo-msc 1.9.0"; exit 1; }
-          autoreconf -fi
-          ./configure --prefix=/opt/osmocom
-          make -j$(nproc)
-          sudo make install
-          ls /opt/osmocom/bin/osmo-msc
-          echo "osmo-msc 1.9.0 installed"
-
-      - name: Initialize HLR database
-        run: |
-          sudo mkdir -p /var/lib/osmocom /etc/osmocom
-          sudo osmo-hlr-db-tool -l /var/lib/osmocom/hlr.db create
-          sudo chmod 666 /var/lib/osmocom/hlr.db
-          echo "HLR database created"
-
-      - name: Configure Osmocom daemons
-        run: |
-          sudo tee /etc/osmocom/osmo-stp.cfg << 'CFG'
-          line vty
-           no login
-          log stderr
-           logging filter all 1
-          cs7 instance 0
-           xua rkm routing-key-allocation dynamic-permitted
-           listen m3ua 2905
-          CFG
-
-          sudo tee /etc/osmocom/osmo-hlr.cfg << 'CFG'
-          line vty
-           no login
-           bind 0.0.0.0
-          hlr
-           database /var/lib/osmocom/hlr.db
-           gsup
-            bind ip 127.0.0.1
-          ctrl
-           bind 0.0.0.0
-          CFG
-
-          # MSC config WITHOUT 'role asp' (unsupported in v1.9.0)
-          sudo tee /etc/osmocom/osmo-msc.cfg << 'CFG'
-          line vty
-           no login
-           bind 0.0.0.0
-          !
-          cs7 instance 0
-           point-code 0.23.1
-           asp asp-clnt-OsmoMSC-A-Iu 2905 0 m3ua
-            remote-ip 127.0.0.1
-            sctp-role client
-           as as-clnt-OsmoMSC-A-Iu m3ua
-            asp asp-clnt-OsmoMSC-A-Iu
-            routing-key 2 0.23.1
-          !
-          network
-           network country code 001
-           mobile network code 01
-           short name OsmoMSC
-           long name OsmoMSC
-           encryption a5 0
-           authentication optional
-          msc
-           mgw remote-ip 127.0.0.1
-          CFG
-
-          sudo tee /etc/osmocom/osmo-mgw.cfg << 'CFG'
-          line vty
-           no login
-          mgcp
-           bind ip 127.0.0.1
-           bind port 2427
-           rtp port-range 4002 16000
-           rtp bind-ip 127.0.0.1
-           number endpoints 31
-          CFG
-          echo "Configuration complete"
-
-      - name: Start core network daemons (custom STP + custom MSC)
-        run: |
-          cat > /tmp/run-stp.sh << 'SCRIPT'
-          #!/bin/bash
-          export LD_LIBRARY_PATH=/opt/osmocom/lib
-          exec /opt/osmocom/bin/osmo-stp "$@"
-          SCRIPT
-          chmod +x /tmp/run-stp.sh
-          sudo /tmp/run-stp.sh -c /etc/osmocom/osmo-stp.cfg > /tmp/stp.log 2>&1 &
-          sleep 2; pgrep -x osmo-stp || { echo "STP failed"; cat /tmp/stp.log; exit 1; }
-          echo "STP running"
-          sudo osmo-hlr -c /etc/osmocom/osmo-hlr.cfg > /tmp/hlr.log 2>&1 &
-          sleep 2; pgrep -x osmo-hlr || { echo "HLR failed"; cat /tmp/hlr.log; exit 1; }
-          echo "HLR running"
-          sudo osmo-mgw -c /etc/osmocom/osmo-mgw.cfg > /tmp/mgw.log 2>&1 &
-          sleep 2
-          cat > /tmp/run-msc.sh << 'SCRIPT'
-          #!/bin/bash
-          export LD_LIBRARY_PATH=/opt/osmocom/lib
-          exec /opt/osmocom/bin/osmo-msc "$@"
-          SCRIPT
-          chmod +x /tmp/run-msc.sh
-          sudo /tmp/run-msc.sh -c /etc/osmocom/osmo-msc.cfg > /tmp/msc.log 2>&1 &
-          sleep 3; pgrep -x osmo-msc || { echo "MSC failed"; cat /tmp/msc.log; exit 1; }
-          echo "MSC running"
-
-      - name: Configure and launch osmo-bsc (system binary, NO cs7 block — auto-config)
-        run: |
-          sudo mkdir -p /tmp/bsc
-          sudo tee /tmp/bsc/osmo-bsc.cfg << 'CFG'
+          sudo mkdir -p /tmp/nitb /var/lib/osmocom
+          sudo tee /tmp/nitb/osmo-nitb.cfg << 'CFG'
           !
           line vty
            no login
@@ -260,32 +149,42 @@ jobs:
           network
            network country code 001
            mobile network code 01
+           short name PhantomLink
+           long name PhantomLink
+           encryption a5 0
            bts 0
-            type osmo-bts
+            type nanobts
             band 1800
             cell_identity 0
             location_area_code 1
             base_station_id_code 63
-            ipa unit-id 1234 0
-            oml ipa stream-id 255 line 0
+            ip.access unit_id 1234 0
+            oml ip.access stream_id 255 line 0
             trx 0
              arfcn 512
              nominal power 23
              max_power_red 20
+             rsl e1 tei 0
              timeslot 0
               phys_chan_config CCCH+SDCCH4
              timeslot 1
               phys_chan_config TCH/F_TCH/H_SDCCH8_PDCH
           !
-          msc 0
-           msc-addr msc
+          msc
+           mgw remote-ip 127.0.0.1
           !
           CFG
-          sudo /usr/bin/osmo-bsc -c /tmp/bsc/osmo-bsc.cfg > /tmp/bsc.log 2>&1 &
+          cat > /tmp/run-nitb.sh << 'SCRIPT'
+          #!/bin/bash
+          export LD_LIBRARY_PATH=/opt/osmocom/lib
+          exec /opt/osmocom/bin/osmo-nitb "$@"
+          SCRIPT
+          chmod +x /tmp/run-nitb.sh
+          sudo /tmp/run-nitb.sh -c /tmp/nitb/osmo-nitb.cfg > /tmp/nitb.log 2>&1 &
           sleep 3
-          pgrep -x osmo-bsc && echo "BSC running" || { echo "BSC not running"; cat /tmp/bsc.log; }
+          pgrep -x osmo-nitb && echo "NITB running" || { echo "NITB not running"; cat /tmp/nitb.log; }
 
-      - name: Check if BSC is listening on OML port 3002
+      - name: Check if NITB is listening on OML port 3002
         run: |
           sleep 2
           echo "=== ss -tlnp | grep 3002 ==="
@@ -318,7 +217,7 @@ jobs:
           sleep 2
           echo "FakeTRX launched"
 
-      - name: Launch osmo-bts-trx (wrapper script) with minimal config
+      - name: Launch osmo-bts-trx (wrapper script) with matching unit-id
         run: |
           sudo mkdir -p /tmp/bts
           sudo tee /tmp/bts/osmo-bts.cfg << 'CFG'
@@ -353,22 +252,6 @@ jobs:
           sleep 3
           pgrep -x osmo-bts-trx && echo "BTS running" || { echo "BTS not running"; cat /tmp/bts.log; }
 
-      - name: Verify SCCP routing and IPA initialization
-        run: |
-          sleep 3
-          echo "=== STP: show cs7 instance 0 as ==="
-          echo "show cs7 instance 0 as" | timeout 10 telnet 127.0.0.1 4239 2>/dev/null || true
-          echo ""
-          echo "=== MSC: show cs7 instance 0 asp ==="
-          echo "show cs7 instance 0 asp" | timeout 10 telnet 127.0.0.1 4254 2>/dev/null || true
-          echo ""
-          echo "=== BSC: show e1_input ==="
-          echo "show e1_input" | timeout 10 telnet 127.0.0.1 4242 2>/dev/null || true
-          echo ""
-          echo "=== BSC: show bts 0 oml ==="
-          echo "show bts 0 oml" | timeout 10 telnet 127.0.0.1 4242 2>/dev/null || true
-          echo "SCCP/IPA verification completed"
-
       - name: Generate subscriber identity (13-digit Nigerian number)
         id: identity
         run: |
@@ -381,11 +264,11 @@ jobs:
           echo "imsi=$IMSI" >> $GITHUB_OUTPUT
           echo "Identity: +$MSISDN (IMSI: $IMSI)"
 
-      - name: Create subscriber via VTY
+      - name: Create subscriber via NITB VTY
         run: |
-          echo -e "enable\nsubscriber imsi $IMSI create\nupdate subscriber imsi $IMSI set msisdn $MSISDN" \
-            | timeout 10 telnet 127.0.0.1 4258
-          echo "Subscriber created via VTY"
+          echo -e "enable\nsubscriber imsi $IMSI create\nsubscriber imsi $IMSI update msisdn $MSISDN" \
+            | timeout 10 telnet 127.0.0.1 4242 2>/dev/null || true
+          echo "Subscriber created via NITB VTY"
         env:
           IMSI: ${{ steps.identity.outputs.imsi }}
           MSISDN: ${{ steps.identity.outputs.msisdn }}
@@ -418,30 +301,17 @@ jobs:
         env:
           IMSI: ${{ steps.identity.outputs.imsi }}
 
-      - name: Configure MSC-BSC link
-        run: |
-          sleep 2
-          echo -e "enable\nconfigure terminal\nmsc\nbsc 0\nremote-ip 127.0.0.1\nremote-port 4253\nend\nexit" \
-            | timeout 10 telnet 127.0.0.1 4254 2>/dev/null || true
-          echo "MSC-BSC link configured"
-
-      - name: Configure MSC-HLR link via VTY
-        run: |
-          sleep 2
-          echo -e "enable\nconfigure terminal\nmsc\nhlr\nremote-ip 127.0.0.1\nremote-port 4222\nend\nexit" \
-            | timeout 10 telnet 127.0.0.1 4254 2>/dev/null || true
-          echo "MSC-HLR VTY configuration attempted"
-
-      - name: Send test SMS via OsmoMSC
+      - name: Send test SMS via NITB VTY
         run: |
           sleep 6
-          echo -e "enable\nsms 1 $MSISDN test\n" | timeout 10 telnet 127.0.0.1 4254 2>/dev/null || true
-          echo "Test SMS sent to MSC"
+          echo -e "enable\nsubscriber extension $MSISDN sms sender extension $MSISDN send test\n" \
+            | timeout 10 telnet 127.0.0.1 4242 2>/dev/null || true
+          echo "Test SMS sent via NITB"
           echo "=== Mobile log (last 30 lines) ==="
           tail -30 /tmp/mobile.log || true
           echo ""
-          echo "=== BSC log (last 15 lines) ==="
-          tail -15 /tmp/bsc.log || true
+          echo "=== NITB log (last 15 lines) ==="
+          tail -15 /tmp/nitb.log || true
           echo ""
           echo "=== BTS log (last 10 lines) ==="
           tail -10 /tmp/bts.log || true
