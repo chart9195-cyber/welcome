@@ -209,7 +209,7 @@ jobs:
           sleep 3; pgrep -x osmo-msc || { echo "MSC failed"; cat /tmp/msc.log; exit 1; }
           echo "MSC running"
 
-      - name: Configure and launch osmo-bsc (wrapper script)
+      - name: Configure and launch osmo-bsc (verified config)
         run: |
           sudo mkdir -p /tmp/bsc
           sudo tee /tmp/bsc/osmo-bsc.cfg << 'CFG'
@@ -219,6 +219,19 @@ jobs:
           !
           log stderr
            logging filter all 1
+           logging color 1
+           logging print category 0
+           logging timestamp 0
+           logging level rll notice
+           logging level cc notice
+           logging level mm notice
+           logging level rr notice
+           logging level rsl notice
+           logging level nm info
+           logging level pag notice
+           logging level meas notice
+           logging level msc notice
+           logging level mgcp notice
           !
           e1_input
            e1_line 0 driver ipa
@@ -352,8 +365,6 @@ jobs:
       - name: Generate subscriber identity (13-digit Nigerian number)
         id: identity
         run: |
-          # Generate a valid Nigerian number: 234 + 10 digits = 13 digits total
-          # Nigerian mobile numbers start with 7, 8, or 9 after the 234 prefix
           PREFIXES=(70 71 80 81 90 91)
           PREFIX=${PREFIXES[$RANDOM % ${#PREFIXES[@]}]}
           LOCAL="${PREFIX}$(shuf -i 10000000-99999999 -n 1)"
