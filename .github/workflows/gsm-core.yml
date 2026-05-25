@@ -198,7 +198,7 @@ jobs:
           sleep 3; pgrep -x osmo-msc || { echo "MSC failed"; cat /tmp/msc.log; exit 1; }
           echo "MSC running"
 
-      - name: Configure and launch osmo-bsc (system binary, simplified config)
+      - name: Configure and launch osmo-bsc (system binary, explicit AS routing-key)
         run: |
           sudo mkdir -p /tmp/bsc
           sudo tee /tmp/bsc/osmo-bsc.cfg << 'CFG'
@@ -222,6 +222,9 @@ jobs:
             remote-ip 127.0.0.1
             role asp
             sctp-role client
+           as as-clnt-BSC-A m3ua
+            asp asp-dynamic
+            routing-key 0 0.23.3
            sccp-address msc
             point-code 0.23.1
           !
