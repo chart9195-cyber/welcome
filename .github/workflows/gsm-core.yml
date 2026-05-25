@@ -199,7 +199,7 @@ jobs:
           sleep 3; pgrep -x osmo-msc || { echo "MSC failed"; cat /tmp/msc.log; exit 1; }
           echo "MSC running"
 
-      - name: Configure and launch osmo-bsc (system binary, no wrapper)
+      - name: Configure and launch osmo-bsc (system binary, simplified config)
         run: |
           sudo mkdir -p /tmp/bsc
           sudo tee /tmp/bsc/osmo-bsc.cfg << 'CFG'
@@ -212,16 +212,6 @@ jobs:
            logging color 1
            logging print category 0
            logging timestamp 0
-           logging level rll notice
-           logging level cc notice
-           logging level mm notice
-           logging level rr notice
-           logging level rsl notice
-           logging level nm info
-           logging level pag notice
-           logging level meas notice
-           logging level msc notice
-           logging level mgcp notice
           !
           e1_input
            e1_line 0 driver ipa
@@ -233,7 +223,6 @@ jobs:
             remote-ip 127.0.0.1
             role asp
             sctp-role client
-            no shutdown
            sccp-address msc
             point-code 0.23.1
           !
