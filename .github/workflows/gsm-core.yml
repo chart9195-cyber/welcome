@@ -131,7 +131,6 @@ jobs:
            logging filter all 1
           cs7 instance 0
            xua rkm routing-key-allocation dynamic-permitted
-           accept-asp-connections dynamic-permitted
            listen m3ua 2905
           CFG
 
