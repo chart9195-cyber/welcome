@@ -142,6 +142,7 @@ jobs:
            listen m3ua 2905
             local-ip 127.0.0.1
           CFG
+
           sudo tee /etc/osmocom/osmo-hlr.cfg << 'CFG'
           line vty
            no login
@@ -153,10 +154,19 @@ jobs:
           ctrl
            bind 0.0.0.0
           CFG
+
           sudo tee /etc/osmocom/osmo-msc.cfg << 'CFG'
           line vty
            no login
-           bind 0.0.0.0
+          !
+          cs7 instance 0
+           point-code 0.23.1
+           asp asp-clnt-OsmoMSC-A-Iu 2905 0 m3ua
+            remote-ip 127.0.0.1
+            role asp
+            sctp-role client
+          !
+          bind 0.0.0.0
           network
            network country code 001
            mobile network code 01
@@ -167,6 +177,7 @@ jobs:
           msc
            mgw remote-ip 127.0.0.1
           CFG
+
           sudo tee /etc/osmocom/osmo-mgw.cfg << 'CFG'
           line vty
            no login
