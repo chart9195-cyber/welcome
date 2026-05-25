@@ -120,6 +120,7 @@ jobs:
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-bsc
           cd osmo-bsc
+          git checkout 1.9.0
           autoreconf -fi
           ./configure --prefix=/opt/osmocom
           make -j$(nproc)
