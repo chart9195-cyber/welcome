@@ -71,18 +71,18 @@ jobs:
           sudo make install
           echo "libosmo-abis installed"
 
-      - name: Build libosmo-sccp (libosmo-sigtran 2.2.0) into isolated prefix
+      - name: Build libosmo-sigtran (2.2.0) into isolated prefix
         run: |
           export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
-          git clone https://gitea.osmocom.org/osmocom/libosmo-sccp
-          cd libosmo-sccp
+          git clone https://gitea.osmocom.org/osmocom/libosmo-sigtran
+          cd libosmo-sigtran
           git checkout 2.2.0
           autoreconf -fi
           ./configure --prefix=/opt/osmocom
           make -j$(nproc)
           sudo make install
-          echo "libosmo-sccp (libosmo-sigtran 2.2.0) installed"
+          echo "libosmo-sigtran 2.2.0 installed"
 
       - name: Build osmo-bts from source (TRX only)
         run: |
