@@ -239,6 +239,8 @@ jobs:
             location_area_code 1
             base_station_id_code 63
             ipa unit-id 1234 0
+            oml ip.access stream_id 0 line 0
+            rsl e1 tei 0
             trx 0
              arfcn 512
              nominal power 23
