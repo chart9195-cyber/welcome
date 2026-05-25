@@ -209,6 +209,7 @@ jobs:
            point-code 0.23.3
            asp asp-dynamic 2905 0 m3ua
             remote-ip 127.0.0.1
+            role asp
             sctp-role client
             no shutdown
            sccp-address msc
