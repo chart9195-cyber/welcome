@@ -201,7 +201,8 @@ jobs:
           line vty
            no login
           !
-          e1_line 0 driver ipa
+          e1_input
+           e1_line 0 driver ipa
           !
           cs7 instance 0
            point-code 0.23.3
