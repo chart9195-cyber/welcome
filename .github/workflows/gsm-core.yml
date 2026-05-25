@@ -26,9 +26,9 @@ jobs:
             autoconf automake git pkg-config make gcc \
             libgnutls28-dev libusb-1.0.0-dev libmnl-dev liburing-dev \
             libpcsclite-dev libortp-dev \
-            osmo-hlr osmo-msc osmo-mgw osmo-bsc \
+            osmo-hlr osmo-mgw osmo-bsc \
             telnet netcat-openbsd
-          echo "All packages installed (system osmo-bsc included)"
+          echo "All packages installed (system osmo-bsc, osmo-mgw, osmo-hlr only)"
 
       - name: Build libosmocore into isolated prefix
         run: |
@@ -129,6 +129,20 @@ jobs:
           ls /opt/osmocom/bin/osmo-stp
           echo "osmo-stp 1.6.0 installed"
 
+      - name: Build osmo-msc from source (tag 1.9.0 — ABI match for sigtran)
+        run: |
+          export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
+          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
+          git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-msc
+          cd osmo-msc
+          git checkout 1.9.0 || { echo "Failed to checkout osmo-msc 1.9.0"; exit 1; }
+          autoreconf -fi
+          ./configure --prefix=/opt/osmocom
+          make -j$(nproc)
+          sudo make install
+          ls /opt/osmocom/bin/osmo-msc
+          echo "osmo-msc 1.9.0 installed"
+
       - name: Initialize HLR database
         run: |
           sudo mkdir -p /var/lib/osmocom /etc/osmocom
@@ -198,7 +212,7 @@ jobs:
           CFG
           echo "Configuration complete"
 
-      - name: Start core network daemons
+      - name: Start core network daemons (custom STP + custom MSC)
         run: |
           cat > /tmp/run-stp.sh << 'SCRIPT'
           #!/bin/bash
@@ -214,7 +228,13 @@ jobs:
           echo "HLR running"
           sudo osmo-mgw -c /etc/osmocom/osmo-mgw.cfg > /tmp/mgw.log 2>&1 &
           sleep 2
-          sudo osmo-msc -c /etc/osmocom/osmo-msc.cfg > /tmp/msc.log 2>&1 &
+          cat > /tmp/run-msc.sh << 'SCRIPT'
+          #!/bin/bash
+          export LD_LIBRARY_PATH=/opt/osmocom/lib
+          exec /opt/osmocom/bin/osmo-msc "$@"
+          SCRIPT
+          chmod +x /tmp/run-msc.sh
+          sudo /tmp/run-msc.sh -c /etc/osmocom/osmo-msc.cfg > /tmp/msc.log 2>&1 &
           sleep 3; pgrep -x osmo-msc || { echo "MSC failed"; cat /tmp/msc.log; exit 1; }
           echo "MSC running"
 
