@@ -193,7 +193,7 @@ jobs:
           sleep 3; pgrep -x osmo-msc || { echo "MSC failed"; cat /tmp/msc.log; exit 1; }
           echo "MSC running"
 
-      - name: Configure and launch osmo-bsc
+      - name: Configure and launch osmo-bsc (wrapper script)
         run: |
           sudo mkdir -p /tmp/bsc
           sudo tee /tmp/bsc/osmo-bsc.cfg << 'CFG'
@@ -239,11 +239,18 @@ jobs:
              phys_chan_config TCH/F_TCH/H_SDCCH8_PDCH
           !
           CFG
-          sudo env LD_LIBRARY_PATH=/opt/osmocom/lib /opt/osmocom/bin/osmo-bsc -c /tmp/bsc/osmo-bsc.cfg > /tmp/bsc.log 2>&1 &
+          # Create wrapper script that sets the library path
+          cat > /tmp/run-bsc.sh << 'SCRIPT'
+          #!/bin/bash
+          export LD_LIBRARY_PATH=/opt/osmocom/lib
+          exec /opt/osmocom/bin/osmo-bsc "$@"
+          SCRIPT
+          chmod +x /tmp/run-bsc.sh
+          sudo /tmp/run-bsc.sh -c /tmp/bsc/osmo-bsc.cfg > /tmp/bsc.log 2>&1 &
           sleep 3
           pgrep -x osmo-bsc && echo "BSC running" || { echo "BSC not running"; cat /tmp/bsc.log; }
 
-      - name: Launch osmo-bts-trx
+      - name: Launch osmo-bts-trx (wrapper script)
         run: |
           sudo mkdir -p /tmp/bts
           sudo tee /tmp/bts/osmo-bts.cfg << 'CFG'
@@ -274,7 +281,14 @@ jobs:
              phys-chan_config TCH/F_TCH/H_SDCCH8_PDCH
           !
           CFG
-          sudo env LD_LIBRARY_PATH=/opt/osmocom/lib /opt/osmocom/bin/osmo-bts-trx -c /tmp/bts/osmo-bts.cfg > /tmp/bts.log 2>&1 &
+          # Create wrapper script that sets the library path
+          cat > /tmp/run-bts.sh << 'SCRIPT'
+          #!/bin/bash
+          export LD_LIBRARY_PATH=/opt/osmocom/lib
+          exec /opt/osmocom/bin/osmo-bts-trx "$@"
+          SCRIPT
+          chmod +x /tmp/run-bts.sh
+          sudo /tmp/run-bts.sh -c /tmp/bts/osmo-bts.cfg > /tmp/bts.log 2>&1 &
           sleep 3
           pgrep -x osmo-bts-trx && echo "BTS running" || { echo "BTS not running"; cat /tmp/bts.log; }
 
@@ -368,8 +382,14 @@ jobs:
           sleep 6
           echo -e "enable\nsms 1 $MSISDN test\n" | timeout 10 telnet 127.0.0.1 4254 2>/dev/null || true
           echo "Test SMS sent to MSC"
-          echo "=== Mobile log (last 20 lines) ==="
-          tail -20 /tmp/mobile.log || true
+          echo "=== Mobile log (last 30 lines) ==="
+          tail -30 /tmp/mobile.log || true
+          echo ""
+          echo "=== BSC log (last 10 lines) ==="
+          tail -10 /tmp/bsc.log || true
+          echo ""
+          echo "=== BTS log (last 10 lines) ==="
+          tail -10 /tmp/bts.log || true
         env:
           MSISDN: ${{ steps.identity.outputs.msisdn }}
 
