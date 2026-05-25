@@ -254,6 +254,15 @@ jobs:
           sleep 3
           pgrep -x osmo-bsc && echo "BSC running" || { echo "BSC not running"; cat /tmp/bsc.log; }
 
+      - name: Check if BSC is listening on OML port 3002
+        run: |
+          sleep 2
+          echo "=== ss -tlnp | grep 3002 ==="
+          sudo ss -tlnp | grep 3002 || echo "Port 3002 NOT listening"
+          echo ""
+          echo "=== ss -tlnp | grep 3003 ==="
+          sudo ss -tlnp | grep 3003 || echo "Port 3003 NOT listening"
+
       - name: Clone OsmocomBB
         run: |
           git clone https://gitea.osmocom.org/phone-side/osmocom-bb
