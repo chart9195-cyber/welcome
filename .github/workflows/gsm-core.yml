@@ -217,7 +217,6 @@ jobs:
           !
           e1_input
            e1_line 0 driver ipa
-           ipa bind 127.0.0.1
           !
           cs7 instance 0
            point-code 0.23.3
@@ -239,12 +238,12 @@ jobs:
             location_area_code 1
             base_station_id_code 63
             ipa unit-id 1234 0
-            oml ip.access stream_id 0 line 0
-            rsl e1 tei 0
+            oml ipa stream-id 255 line 0
             trx 0
              arfcn 512
              nominal power 23
              max_power_red 20
+             rsl e1 tei 0
              timeslot 0
               phys_chan_config CCCH+SDCCH4
              timeslot 1
