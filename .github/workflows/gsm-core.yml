@@ -41,10 +41,10 @@ jobs:
           cd libosmo-netif && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
           echo "libosmo-netif done"
 
-          # 3. libosmo-abis 1.4.0 – provides ipaccess_fd_cb, compatible with osmo-bts 1.9.0 & osmo-bsc 1.9.0
+          # 3. libosmo-abis 2.5.0 – required by osmo-bts 1.9.0 (>=2.0.0) AND compatible with osmo-bsc 1.9.0
           git clone https://gitea.osmocom.org/osmocom/libosmo-abis
-          cd libosmo-abis && git checkout 1.4.0 && autoreconf -fi && ./configure --prefix=/opt/osmocom --disable-dahdi && make -j$(nproc) && sudo make install && cd ..
-          echo "libosmo-abis 1.4.0 done"
+          cd libosmo-abis && git checkout 2.5.0 && autoreconf -fi && ./configure --prefix=/opt/osmocom --disable-dahdi && make -j$(nproc) && sudo make install && cd ..
+          echo "libosmo-abis 2.5.0 done"
 
           # 4. libosmo-sccp – provides libosmo-sigtran 1.9.0
           git clone https://gitea.osmocom.org/osmocom/libosmo-sccp
@@ -56,12 +56,12 @@ jobs:
           cd libosmo-gprs && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
           echo "libosmo-gprs done"
 
-          # 6. osmo-bts 1.9.0 – TRX only, no in-tree osmo-bsc build
+          # 6. osmo-bts 1.9.0 – TRX only, now builds cleanly with libosmo-abis 2.5.0
           git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-bts
           cd osmo-bts && git checkout 1.9.0 && autoreconf -fi && ./configure --prefix=/opt/osmocom --enable-trx --disable-dahdi --disable-ortp --disable-sysmbts && make -j$(nproc) && sudo make install && cd ..
           echo "osmo-bts 1.9.0 done"
 
-          # 7. osmo-bsc 1.9.0 – all dependencies met
+          # 7. osmo-bsc 1.9.0 – all dependencies met (libosmo-sigtran 1.9.0, libosmo-mgcp-client, libosmo-abis 2.5.0)
           git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-bsc
           cd osmo-bsc && git checkout 1.9.0 && autoreconf -fi && ./configure --prefix=/opt/osmocom && make -j$(nproc) && sudo make install && cd ..
           echo "osmo-bsc 1.9.0 done"
