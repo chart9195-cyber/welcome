@@ -137,6 +137,8 @@ jobs:
           sudo tee /etc/osmocom/osmo-stp.cfg << 'CFG'
           line vty
            no login
+          log stderr
+           logging filter all 1
           cs7 instance 0
            xua rkm routing-key-allocation dynamic-permitted
            listen m3ua 2905
@@ -215,6 +217,12 @@ jobs:
           line vty
            no login
           !
+          log stderr
+           logging filter all 1
+           logging category abis debug
+           logging category de1d debug
+           logging category ipa debug
+          !
           e1_input
            e1_line 0 driver ipa
           !
@@ -243,7 +251,6 @@ jobs:
              arfcn 512
              nominal power 23
              max_power_red 20
-             rsl e1 tei 0
              timeslot 0
               phys_chan_config CCCH+SDCCH4
              timeslot 1
@@ -297,6 +304,25 @@ jobs:
           sudo /tmp/run-bts.sh -c /tmp/bts/osmo-bts.cfg > /tmp/bts.log 2>&1 &
           sleep 3
           pgrep -x osmo-bts-trx && echo "BTS running" || { echo "BTS not running"; cat /tmp/bts.log; }
+
+      - name: Verify SCCP routing and IPA initialization
+        run: |
+          sleep 3
+          echo "=== STP: show cs7 instance 0 as ==="
+          echo "show cs7 instance 0 as" | timeout 10 telnet 127.0.0.1 4239 2>/dev/null || true
+          echo ""
+          echo "=== MSC: show cs7 instance 0 asp ==="
+          echo "show cs7 instance 0 asp" | timeout 10 telnet 127.0.0.1 4254 2>/dev/null || true
+          echo ""
+          echo "=== BSC: show e1_input ==="
+          echo "show e1_input" | timeout 10 telnet 127.0.0.1 4242 2>/dev/null || true
+          echo ""
+          echo "=== BSC: show bts 0 ==="
+          echo "show bts 0" | timeout 10 telnet 127.0.0.1 4242 2>/dev/null || true
+          echo ""
+          echo "=== BSC: show bts 0 oml ==="
+          echo "show bts 0 oml" | timeout 10 telnet 127.0.0.1 4242 2>/dev/null || true
+          echo "SCCP/IPA verification completed"
 
       - name: Configure MSC-BSC link
         run: |
@@ -391,8 +417,8 @@ jobs:
           echo "=== Mobile log (last 30 lines) ==="
           tail -30 /tmp/mobile.log || true
           echo ""
-          echo "=== BSC log (last 10 lines) ==="
-          tail -10 /tmp/bsc.log || true
+          echo "=== BSC log (last 15 lines) ==="
+          tail -15 /tmp/bsc.log || true
           echo ""
           echo "=== BTS log (last 10 lines) ==="
           tail -10 /tmp/bts.log || true
