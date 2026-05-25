@@ -201,6 +201,8 @@ jobs:
           line vty
            no login
           !
+          e1_line 0 driver ipa
+          !
           cs7 instance 0
            point-code 0.23.3
            asp asp-dynamic 2905 0 m3ua
@@ -243,7 +245,7 @@ jobs:
           sleep 3
           pgrep -x osmo-bsc && echo "BSC running" || { echo "BSC not running"; cat /tmp/bsc.log; }
 
-      - name: Launch osmo-bts-trx (wrapper script) with trx+phy
+      - name: Launch osmo-bts-trx (wrapper script) with minimal config
         run: |
           sudo mkdir -p /tmp/bts
           sudo tee /tmp/bts/osmo-bts.cfg << 'CFG'
@@ -256,6 +258,7 @@ jobs:
            osmotrx fn-advance 20
            osmotrx rts-advance 5
            instance 0
+          !
           bts 0
            band 1800
            ipa unit-id 1234 0
@@ -265,10 +268,6 @@ jobs:
            paging lifetime 0
            trx 0
             phy 0 instance 0
-            timeslot 0
-             phys_chan-config CCCH+SDCCH4
-            timeslot 1
-             phys_chan_config TCH/F_TCH/H_SDCCH8_PDCH
           !
           CFG
           cat > /tmp/run-bts.sh << 'SCRIPT'
