@@ -70,7 +70,7 @@ jobs:
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           git clone https://gitea.osmocom.org/osmocom/libosmo-abis
           cd libosmo-abis
-          git checkout 2.0.0
+          git checkout 2.0.0 || { echo "Failed to checkout libosmo-abis 2.0.0"; exit 1; }
           autoreconf -fi
           ./configure --prefix=/opt/osmocom --disable-dahdi
           make -j$(nproc)
@@ -83,7 +83,7 @@ jobs:
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           git clone https://gitea.osmocom.org/osmocom/libosmo-sigtran
           cd libosmo-sigtran
-          git checkout 2.2.0
+          git checkout 2.2.0 || { echo "Failed to checkout libosmo-sigtran 2.2.0"; exit 1; }
           autoreconf -fi
           ./configure --prefix=/opt/osmocom
           make -j$(nproc)
@@ -108,7 +108,7 @@ jobs:
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-bts
           cd osmo-bts
-          git checkout 1.9.0
+          git checkout 1.9.0 || { echo "Failed to checkout osmo-bts 1.9.0"; exit 1; }
           autoreconf -fi
           ./configure --prefix=/opt/osmocom --enable-trx --disable-dahdi --disable-ortp --disable-sysmbts
           make -j$(nproc)
@@ -121,7 +121,7 @@ jobs:
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-bsc
           cd osmo-bsc
-          git checkout 1.9.0
+          git checkout 1.9.0 || { echo "Failed to checkout osmo-bsc 1.9.0"; exit 1; }
           autoreconf -fi
           ./configure --prefix=/opt/osmocom
           make -j$(nproc)
