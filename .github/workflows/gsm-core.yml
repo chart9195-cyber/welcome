@@ -206,7 +206,7 @@ jobs:
            asp asp-dynamic 2905 0 m3ua
             remote-ip 127.0.0.1
             sctp-role client
-           shutdown
+            no shutdown
            sccp-address msc
             point-code 0.23.1
           !
@@ -246,7 +246,7 @@ jobs:
           sleep 3
           pgrep -x osmo-bsc && echo "BSC running" || { echo "BSC not running"; cat /tmp/bsc.log; }
 
-      - name: Launch osmo-bts-trx (wrapper script)
+      - name: Launch osmo-bts-trx (wrapper script) with minimal config
         run: |
           sudo mkdir -p /tmp/bts
           sudo tee /tmp/bts/osmo-bts.cfg << 'CFG'
@@ -267,11 +267,6 @@ jobs:
            rtp jitter-buffer 0
            paging queue-size 200
            paging lifetime 0
-           trx 0
-            timeslot 0
-             phys-chan-config CCCH+SDCCH4
-            timeslot 1
-             phys-chan_config TCH/F_TCH/H_SDCCH8_PDCH
           !
           CFG
           cat > /tmp/run-bts.sh << 'SCRIPT'
@@ -283,6 +278,13 @@ jobs:
           sudo /tmp/run-bts.sh -c /tmp/bts/osmo-bts.cfg > /tmp/bts.log 2>&1 &
           sleep 3
           pgrep -x osmo-bts-trx && echo "BTS running" || { echo "BTS not running"; cat /tmp/bts.log; }
+
+      - name: Configure BTS trx and timeslots via VTY
+        run: |
+          sleep 2
+          echo -e "enable\nconfigure terminal\nbts 0\ntrx 0\ntimeslot 0\nphys_chan_config CCCH+SDCCH4\ntimeslot 1\nphys_chan_config TCH/F_TCH/H_SDCCH8_PDCH\nend\nexit" \
+            | timeout 10 telnet 127.0.0.1 4241 2>/dev/null || true
+          echo "BTS trx/timeslot configuration attempted"
 
       - name: Configure MSC-BSC link
         run: |
