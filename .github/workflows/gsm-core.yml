@@ -213,27 +213,26 @@ jobs:
           network
            network country code 001
            mobile network code 01
+           bts 0
+            type osmo-bts
+            band 1800
+            cell_identity 0
+            location_area_code 1
+            base_station_id_code 63
+            ipa unit-id 1234 0
+             rsl e1 tei 0
+             oml e1 tei 0
+            trx 0
+             arfcn 512
+             nominal power 23
+             max_power_red 20
+             timeslot 0
+              phys_chan_config CCCH+SDCCH4
+             timeslot 1
+              phys_chan_config TCH/F_TCH/H_SDCCH8_PDCH
           !
           msc 0
            msc-addr msc
-          !
-          bts 0
-           type osmo-bts
-           band 1800
-           cell_identity 0
-           location_area_code 1
-           base_station_id_code 63
-           ipa unit-id 1234 0
-            rsl e1 tei 0
-            oml e1 tei 0
-           trx 0
-            arfcn 512
-            nominal power 23
-            max_power_red 20
-            timeslot 0
-             phys_chan_config CCCH+SDCCH4
-            timeslot 1
-             phys_chan_config TCH/F_TCH/H_SDCCH8_PDCH
           !
           CFG
           cat > /tmp/run-bsc.sh << 'SCRIPT'
@@ -246,7 +245,7 @@ jobs:
           sleep 3
           pgrep -x osmo-bsc && echo "BSC running" || { echo "BSC not running"; cat /tmp/bsc.log; }
 
-      - name: Launch osmo-bts-trx (wrapper script) with minimal config
+      - name: Launch osmo-bts-trx (wrapper script)
         run: |
           sudo mkdir -p /tmp/bts
           sudo tee /tmp/bts/osmo-bts.cfg << 'CFG'
@@ -259,7 +258,6 @@ jobs:
            osmotrx fn-advance 20
            osmotrx rts-advance 5
            instance 0
-          !
           bts 0
            band 1800
            ipa unit-id 1234 0
@@ -267,6 +265,12 @@ jobs:
            rtp jitter-buffer 0
            paging queue-size 200
            paging lifetime 0
+           trx 0
+            phy 0 instance 0
+            timeslot 0
+             phys-chan-config CCCH+SDCCH4
+            timeslot 1
+             phys-chan_config TCH/F_TCH/H_SDCCH8_PDCH
           !
           CFG
           cat > /tmp/run-bts.sh << 'SCRIPT'
@@ -278,13 +282,6 @@ jobs:
           sudo /tmp/run-bts.sh -c /tmp/bts/osmo-bts.cfg > /tmp/bts.log 2>&1 &
           sleep 3
           pgrep -x osmo-bts-trx && echo "BTS running" || { echo "BTS not running"; cat /tmp/bts.log; }
-
-      - name: Configure BTS trx and timeslots via VTY
-        run: |
-          sleep 2
-          echo -e "enable\nconfigure terminal\nbts 0\ntrx 0\ntimeslot 0\nphys_chan_config CCCH+SDCCH4\ntimeslot 1\nphys_chan_config TCH/F_TCH/H_SDCCH8_PDCH\nend\nexit" \
-            | timeout 10 telnet 127.0.0.1 4241 2>/dev/null || true
-          echo "BTS trx/timeslot configuration attempted"
 
       - name: Configure MSC-BSC link
         run: |
