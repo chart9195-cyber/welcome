@@ -203,9 +203,10 @@ jobs:
           !
           cs7 instance 0
            point-code 0.23.3
-           asp asp-dynamic 0 2905 m3ua
+           asp asp-dynamic 2905 0 m3ua
             remote-ip 127.0.0.1
             sctp-role client
+           shutdown
            sccp-address msc
             point-code 0.23.1
           !
@@ -267,7 +268,6 @@ jobs:
            paging queue-size 200
            paging lifetime 0
            trx 0
-            ms-power-control dsp
             timeslot 0
              phys-chan-config CCCH+SDCCH4
             timeslot 1
