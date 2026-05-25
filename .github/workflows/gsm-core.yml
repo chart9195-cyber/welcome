@@ -166,6 +166,9 @@ jobs:
             remote-ip 127.0.0.1
             role asp
             sctp-role client
+           as as-clnt-OsmoMSC-A-Iu m3ua
+            asp asp-clnt-OsmoMSC-A-Iu
+            routing-key 2 0.23.1
           !
           network
            network country code 001
