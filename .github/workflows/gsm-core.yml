@@ -203,22 +203,18 @@ jobs:
           !
           cs7 instance 0
            point-code 0.23.3
-           asp asp-dynamic 2905 2905 m3ua
+           asp asp-dynamic 0 2905 m3ua
             remote-ip 127.0.0.1
-            local-ip 127.0.0.1
             sctp-role client
-           as as-bsc m3ua
-            asp asp-dynamic
-            routing-key 0 0.23.3
+           sccp-address msc
+            point-code 0.23.1
           !
           network
            network country code 001
            mobile network code 01
           !
           msc 0
-           remote-ip 127.0.0.1
-           remote-port 4254
-           cs7-instance-a 0
+           msc-addr msc
           !
           bts 0
            type osmo-bts
@@ -239,7 +235,6 @@ jobs:
              phys_chan_config TCH/F_TCH/H_SDCCH8_PDCH
           !
           CFG
-          # Create wrapper script that sets the library path
           cat > /tmp/run-bsc.sh << 'SCRIPT'
           #!/bin/bash
           export LD_LIBRARY_PATH=/opt/osmocom/lib
@@ -272,8 +267,6 @@ jobs:
            paging queue-size 200
            paging lifetime 0
            trx 0
-            power-ramp max-initial 0
-            power-ramp step-interval 1
             ms-power-control dsp
             timeslot 0
              phys-chan-config CCCH+SDCCH4
@@ -281,7 +274,6 @@ jobs:
              phys-chan_config TCH/F_TCH/H_SDCCH8_PDCH
           !
           CFG
-          # Create wrapper script that sets the library path
           cat > /tmp/run-bts.sh << 'SCRIPT'
           #!/bin/bash
           export LD_LIBRARY_PATH=/opt/osmocom/lib
