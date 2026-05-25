@@ -220,8 +220,6 @@ jobs:
             location_area_code 1
             base_station_id_code 63
             ipa unit-id 1234 0
-             rsl e1 tei 0
-             oml e1 tei 0
             trx 0
              arfcn 512
              nominal power 23
@@ -245,7 +243,7 @@ jobs:
           sleep 3
           pgrep -x osmo-bsc && echo "BSC running" || { echo "BSC not running"; cat /tmp/bsc.log; }
 
-      - name: Launch osmo-bts-trx (wrapper script)
+      - name: Launch osmo-bts-trx (wrapper script) with trx+phy
         run: |
           sudo mkdir -p /tmp/bts
           sudo tee /tmp/bts/osmo-bts.cfg << 'CFG'
@@ -268,9 +266,9 @@ jobs:
            trx 0
             phy 0 instance 0
             timeslot 0
-             phys-chan-config CCCH+SDCCH4
+             phys_chan-config CCCH+SDCCH4
             timeslot 1
-             phys-chan_config TCH/F_TCH/H_SDCCH8_PDCH
+             phys_chan_config TCH/F_TCH/H_SDCCH8_PDCH
           !
           CFG
           cat > /tmp/run-bts.sh << 'SCRIPT'
