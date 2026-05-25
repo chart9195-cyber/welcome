@@ -188,7 +188,7 @@ jobs:
           sleep 3; pgrep -x osmo-msc || { echo "MSC failed"; cat /tmp/msc.log; exit 1; }
           echo "MSC running"
 
-      - name: Configure and launch osmo-bsc (with library path)
+      - name: Configure and launch osmo-bsc (PRESERVE LIBRARY PATH)
         run: |
           sudo mkdir -p /tmp/bsc
           sudo tee /tmp/bsc/osmo-bsc.cfg << 'CFG'
@@ -237,7 +237,7 @@ jobs:
           sleep 3
           pgrep -x osmo-bsc && echo "BSC running" || { echo "BSC not running"; cat /tmp/bsc.log; }
 
-      - name: Launch osmo-bts-trx (with library path)
+      - name: Launch osmo-bts-trx (PRESERVE LIBRARY PATH)
         run: |
           sudo mkdir -p /tmp/bts
           sudo tee /tmp/bts/osmo-bts.cfg << 'CFG'
