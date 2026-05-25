@@ -26,9 +26,10 @@ jobs:
             autoconf automake git pkg-config make gcc \
             libgnutls28-dev libusb-1.0.0-dev libmnl-dev liburing-dev \
             libpcsclite-dev libortp-dev \
+            libosmo-gsup-client-dev \
             osmo-hlr osmo-mgw osmo-bsc \
             telnet netcat-openbsd
-          echo "All packages installed (system osmo-bsc, osmo-mgw, osmo-hlr)"
+          echo "All packages installed (system osmo-bsc, osmo-mgw, osmo-hlr, libosmo-gsup-client-dev)"
 
       - name: Build libosmocore into isolated prefix
         run: |
@@ -131,7 +132,7 @@ jobs:
 
       - name: Build osmo-msc from source (tag 1.9.0 — ABI match for sigtran)
         run: |
-          export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
+          export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:/usr/lib/pkgconfig:$PKG_CONFIG_PATH
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-msc
           cd osmo-msc
