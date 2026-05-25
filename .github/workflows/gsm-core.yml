@@ -219,9 +219,6 @@ jobs:
           !
           log stderr
            logging filter all 1
-           logging category abis debug
-           logging category de1d debug
-           logging category ipa debug
           !
           e1_input
            e1_line 0 driver ipa
@@ -317,9 +314,6 @@ jobs:
           echo "=== BSC: show e1_input ==="
           echo "show e1_input" | timeout 10 telnet 127.0.0.1 4242 2>/dev/null || true
           echo ""
-          echo "=== BSC: show bts 0 ==="
-          echo "show bts 0" | timeout 10 telnet 127.0.0.1 4242 2>/dev/null || true
-          echo ""
           echo "=== BSC: show bts 0 oml ==="
           echo "show bts 0 oml" | timeout 10 telnet 127.0.0.1 4242 2>/dev/null || true
           echo "SCCP/IPA verification completed"
@@ -355,11 +349,15 @@ jobs:
           echo "Host programs built"
           ls src/mobile/mobile
 
-      - name: Generate subscriber identity
+      - name: Generate subscriber identity (13-digit Nigerian number)
         id: identity
         run: |
-          RANDSUFF=$(shuf -i 10000000-99999999 -n 1)
-          MSISDN="234$RANDSUFF"
+          # Generate a valid Nigerian number: 234 + 10 digits = 13 digits total
+          # Nigerian mobile numbers start with 7, 8, or 9 after the 234 prefix
+          PREFIXES=(70 71 80 81 90 91)
+          PREFIX=${PREFIXES[$RANDOM % ${#PREFIXES[@]}]}
+          LOCAL="${PREFIX}$(shuf -i 10000000-99999999 -n 1)"
+          MSISDN="234${LOCAL}"
           IMSI="001010$(shuf -i 1000000000-9999999999 -n 1)"
           echo "msisdn=$MSISDN" >> $GITHUB_OUTPUT
           echo "imsi=$IMSI" >> $GITHUB_OUTPUT
