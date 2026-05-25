@@ -64,17 +64,18 @@ jobs:
           sudo make install
           echo "libosmo-netif installed"
 
-      - name: Build libosmo-abis into isolated prefix
+      - name: Build libosmo-abis (tag 2.0.0 — ABI-compatible) into isolated prefix
         run: |
           export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           git clone https://gitea.osmocom.org/osmocom/libosmo-abis
           cd libosmo-abis
+          git checkout 2.0.0 || { echo "Failed to checkout libosmo-abis 2.0.0"; exit 1; }
           autoreconf -fi
           ./configure --prefix=/opt/osmocom --disable-dahdi
           make -j$(nproc)
           sudo make install
-          echo "libosmo-abis installed"
+          echo "libosmo-abis 2.0.0 installed"
 
       - name: Build libosmo-sigtran (2.2.0) into isolated prefix
         run: |
@@ -82,7 +83,7 @@ jobs:
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           git clone https://gitea.osmocom.org/osmocom/libosmo-sigtran
           cd libosmo-sigtran
-          git checkout 2.2.0
+          git checkout 2.2.0 || { echo "Failed to checkout libosmo-sigtran 2.2.0"; exit 1; }
           autoreconf -fi
           ./configure --prefix=/opt/osmocom
           make -j$(nproc)
@@ -101,24 +102,26 @@ jobs:
           sudo make install
           echo "osmo-mgw (libosmo-mgcp-client) master installed"
 
-      - name: Build osmo-bts from source (TRX only)
+      - name: Build osmo-bts from source (TRX only, tag 1.9.0)
         run: |
           export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-bts
           cd osmo-bts
+          git checkout 1.9.0 || { echo "Failed to checkout osmo-bts 1.9.0"; exit 1; }
           autoreconf -fi
           ./configure --prefix=/opt/osmocom --enable-trx --disable-dahdi --disable-ortp --disable-sysmbts
           make -j$(nproc)
           sudo make install
           ls /opt/osmocom/bin/osmo-bts-trx
 
-      - name: Build osmo-bsc from source
+      - name: Build osmo-bsc from source (tag 1.9.0 — matches libosmo-abis 2.0.0)
         run: |
           export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           git clone https://gitea.osmocom.org/cellular-infrastructure/osmo-bsc
           cd osmo-bsc
+          git checkout 1.9.0 || { echo "Failed to checkout osmo-bsc 1.9.0"; exit 1; }
           autoreconf -fi
           ./configure --prefix=/opt/osmocom
           make -j$(nproc)
@@ -209,7 +212,7 @@ jobs:
           sleep 3; pgrep -x osmo-msc || { echo "MSC failed"; cat /tmp/msc.log; exit 1; }
           echo "MSC running"
 
-      - name: Configure and launch osmo-bsc (verified config)
+      - name: Configure and launch osmo-bsc (verified config with ipa bind)
         run: |
           sudo mkdir -p /tmp/bsc
           sudo tee /tmp/bsc/osmo-bsc.cfg << 'CFG'
@@ -235,6 +238,7 @@ jobs:
           !
           e1_input
            e1_line 0 driver ipa
+           ipa bind 127.0.0.1
           !
           cs7 instance 0
            point-code 0.23.3
@@ -279,6 +283,30 @@ jobs:
           sudo /tmp/run-bsc.sh -c /tmp/bsc/osmo-bsc.cfg > /tmp/bsc.log 2>&1 &
           sleep 3
           pgrep -x osmo-bsc && echo "BSC running" || { echo "BSC not running"; cat /tmp/bsc.log; }
+
+      - name: Clone OsmocomBB
+        run: |
+          git clone https://gitea.osmocom.org/phone-side/osmocom-bb
+          echo "OsmocomBB cloned"
+
+      - name: Build OsmocomBB host programs
+        run: |
+          export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
+          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
+          cd osmocom-bb/src/host/layer23
+          ls configure.ac
+          autoreconf -fi
+          ./configure
+          make -j$(nproc)
+          echo "Host programs built"
+          ls src/mobile/mobile
+
+      - name: Launch FakeTRX FIRST (before osmo-bts-trx)
+        run: |
+          cd osmocom-bb/src/target/trx_toolkit
+          python3 fake_trx.py > /tmp/faketrx.log 2>&1 &
+          sleep 2
+          echo "FakeTRX launched"
 
       - name: Launch osmo-bts-trx (wrapper script) with minimal config
         run: |
@@ -331,37 +359,6 @@ jobs:
           echo "show bts 0 oml" | timeout 10 telnet 127.0.0.1 4242 2>/dev/null || true
           echo "SCCP/IPA verification completed"
 
-      - name: Configure MSC-BSC link
-        run: |
-          sleep 2
-          echo -e "enable\nconfigure terminal\nmsc\nbsc 0\nremote-ip 127.0.0.1\nremote-port 4253\nend\nexit" \
-            | timeout 10 telnet 127.0.0.1 4254 2>/dev/null || true
-          echo "MSC-BSC link configured"
-
-      - name: Configure MSC-HLR link via VTY
-        run: |
-          sleep 2
-          echo -e "enable\nconfigure terminal\nmsc\nhlr\nremote-ip 127.0.0.1\nremote-port 4222\nend\nexit" \
-            | timeout 10 telnet 127.0.0.1 4254 2>/dev/null || true
-          echo "MSC-HLR VTY configuration attempted"
-
-      - name: Clone OsmocomBB
-        run: |
-          git clone https://gitea.osmocom.org/phone-side/osmocom-bb
-          echo "OsmocomBB cloned"
-
-      - name: Build OsmocomBB host programs
-        run: |
-          export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
-          export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
-          cd osmocom-bb/src/host/layer23
-          ls configure.ac
-          autoreconf -fi
-          ./configure
-          make -j$(nproc)
-          echo "Host programs built"
-          ls src/mobile/mobile
-
       - name: Generate subscriber identity (13-digit Nigerian number)
         id: identity
         run: |
@@ -382,13 +379,6 @@ jobs:
         env:
           IMSI: ${{ steps.identity.outputs.imsi }}
           MSISDN: ${{ steps.identity.outputs.msisdn }}
-
-      - name: Launch FakeTRX (virtual Um interface)
-        run: |
-          cd osmocom-bb/src/target/trx_toolkit
-          python3 fake_trx.py > /tmp/faketrx.log 2>&1 &
-          sleep 2
-          echo "FakeTRX launched"
 
       - name: Launch mobile with minimal config
         run: |
@@ -417,6 +407,20 @@ jobs:
           echo "VTY runtime configuration attempted"
         env:
           IMSI: ${{ steps.identity.outputs.imsi }}
+
+      - name: Configure MSC-BSC link
+        run: |
+          sleep 2
+          echo -e "enable\nconfigure terminal\nmsc\nbsc 0\nremote-ip 127.0.0.1\nremote-port 4253\nend\nexit" \
+            | timeout 10 telnet 127.0.0.1 4254 2>/dev/null || true
+          echo "MSC-BSC link configured"
+
+      - name: Configure MSC-HLR link via VTY
+        run: |
+          sleep 2
+          echo -e "enable\nconfigure terminal\nmsc\nhlr\nremote-ip 127.0.0.1\nremote-port 4222\nend\nexit" \
+            | timeout 10 telnet 127.0.0.1 4254 2>/dev/null || true
+          echo "MSC-HLR VTY configuration attempted"
 
       - name: Send test SMS via OsmoMSC
         run: |
