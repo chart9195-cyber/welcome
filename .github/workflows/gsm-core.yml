@@ -13,12 +13,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
-      - name: Load SCTP kernel module
-        run: |
-          sudo modprobe sctp
-          lsmod | grep sctp
-
-      - name: Install all required packages
+      - name: Install all required packages (system packages only, no STP)
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -28,7 +23,7 @@ jobs:
             libpcsclite-dev libortp-dev \
             osmo-hlr osmo-msc osmo-mgw osmo-bsc \
             telnet netcat-openbsd
-          echo "All system packages installed (osmo-bsc, osmo-msc, osmo-hlr, osmo-mgw)"
+          echo "All system packages installed"
 
       - name: Build libosmocore into isolated prefix
         run: |
@@ -122,7 +117,7 @@ jobs:
           sudo chmod 666 /var/lib/osmocom/hlr.db
           echo "HLR database created"
 
-      - name: Configure Osmocom daemons (correct HLR syntax)
+      - name: Configure Osmocom daemons (NO STP, NO cs7, IPA backhaul only)
         run: |
           sudo tee /etc/osmocom/osmo-hlr.cfg << 'CFG'
           line vty
@@ -158,7 +153,7 @@ jobs:
           !
           bsc 0
            remote-ip 127.0.0.1
-           remote-port 4253
+           remote-port 4254
           !
           CFG
 
@@ -174,7 +169,7 @@ jobs:
           CFG
           echo "Configuration complete"
 
-      - name: Start core network daemons (HLR, MGW, MSC)
+      - name: Start core network daemons (HLR, MGW, MSC — NO STP)
         run: |
           sudo osmo-hlr -c /etc/osmocom/osmo-hlr.cfg > /tmp/hlr.log 2>&1 &
           sleep 2; pgrep -x osmo-hlr || { echo "HLR failed"; cat /tmp/hlr.log; exit 1; }
@@ -185,7 +180,7 @@ jobs:
           sleep 3; pgrep -x osmo-msc || { echo "MSC failed"; cat /tmp/msc.log; exit 1; }
           echo "MSC running"
 
-      - name: Configure and launch osmo-bsc (system binary, no cs7, IPA backhaul)
+      - name: Configure and launch osmo-bsc (system binary, NO cs7, IPA backhaul)
         run: |
           sudo mkdir -p /tmp/bsc
           sudo tee /tmp/bsc/osmo-bsc.cfg << 'CFG'
