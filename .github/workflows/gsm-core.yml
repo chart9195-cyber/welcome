@@ -26,9 +26,10 @@ jobs:
             autoconf automake git pkg-config make gcc \
             libgnutls28-dev libusb-1.0.0-dev libmnl-dev liburing-dev \
             libpcsclite-dev libortp-dev \
+            libdbi-dev \
             osmo-mgw \
             telnet netcat-openbsd
-          echo "All packages installed (osmo-mgw only)"
+          echo "All packages installed (osmo-mgw + libdbi-dev for openbsc)"
 
       - name: Build libosmocore into isolated prefix
         run: |
