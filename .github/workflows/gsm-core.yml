@@ -116,12 +116,14 @@ jobs:
           sudo make install
           ls /opt/osmocom/bin/osmo-bts-trx
 
-      - name: Build osmocom-nitb from source (openbsc/openbsc subdirectory)
+      - name: Build osmocom-nitb from source (openbsc/openbsc subdirectory, patched for sdp_firmware)
         run: |
           export PKG_CONFIG_PATH=/opt/osmocom/lib/pkgconfig:$PKG_CONFIG_PATH
           export LD_LIBRARY_PATH=/opt/osmocom/lib:$LD_LIBRARY_PATH
           git clone https://gitea.osmocom.org/cellular-infrastructure/openbsc
           cd openbsc/openbsc
+          # Remove local struct sdp_firmware definition to avoid redefinition with libosmo-abis >= 2.0.0
+          sed -i '/^struct sdp_firmware {$/,/^};$/d' src/libbsc/abis_nm.c
           autoreconf -fi
           ./configure --prefix=/opt/osmocom
           make -j$(nproc)
