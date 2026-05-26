@@ -122,7 +122,7 @@ jobs:
           sudo chmod 666 /var/lib/osmocom/hlr.db
           echo "HLR database created"
 
-      - name: Configure Osmocom daemons (NO cs7, direct IPA + GSUP)
+      - name: Configure Osmocom daemons (correct HLR syntax)
         run: |
           sudo tee /etc/osmocom/osmo-hlr.cfg << 'CFG'
           line vty
@@ -130,8 +130,8 @@ jobs:
            bind 0.0.0.0
           hlr
            database /var/lib/osmocom/hlr.db
-          gsup
-           bind ip 127.0.0.1
+           gsup
+            bind ip 127.0.0.1
           ctrl
            bind 0.0.0.0
           CFG
