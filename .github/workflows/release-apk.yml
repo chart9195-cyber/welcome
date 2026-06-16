@@ -1,0 +1,37 @@
+name: Release APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create release directory
+        run: mkdir -p release
+
+      - name: Copy APK to release
+        run: |
+          cp ~/apk-workspace/input/zapero_modified_signed.apk release/
+          ls -la release/
+
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zapero-ghost-apk
+          path: release/zapero_modified_signed.apk
+          retention-days: 30
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/zapero_modified_signed.apk
+          tag_name: "ghost-v1.0.0"
+          name: "Ghost Zapero APK v1.0.0"
+          body: |
+            Patched Zapero APK – connects to phantomlink-permanent.nport.link
+          draft: false
+          prerelease: false
